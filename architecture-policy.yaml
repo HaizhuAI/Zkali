@@ -1532,3 +1532,10 @@ exceptions:
       - packages/ui/src/store/workflowRunSavedStore.ts
       - packages/ui/src/v4/officeSuggestedPrompts.ts
     reason: 这些文件是 gate 时间戳之后进入仓库的存量上游新增（legacy 模块内），仅因 zkali 发行版 ZCode→zkali 品牌改名的机械字符串替换被纳入 --changed 闭包而首次命中检查；改名本身未引入新文件语义，逐一 adopt 不在本次发行范围，沿用 zcode-cua 先例登记例外。
+  - id: zkali-wallpaper-theme-module
+    rule: unmanaged-new-file
+    paths:
+      - packages/ui/src/zkali-wallpaper/**
+      - packages/ui/scripts/generate-wallpapers.mjs
+      - packages/ui/src/assets/wallpapers/**
+    reason: zkali 发行版壁纸主题模块（dsh wallpaper-engine 概念的原生移植）：偏好经 useZCodeStore/localStorage/广播同步，壁纸为仓内程序化生成的原创 SVG 资产；模块体量小且无独立契约层需求，由 ui legacy 模块兜底，随发行版登记例外而非新建 managed 模块。
