@@ -3133,11 +3133,6 @@ const zhCN: Record<string, string> = {
   "settings.shortcuts.command.resetZoom": "恢复缩放",
   "settings.appearance.interfaceTitle": "界面设置",
   "settings.appearance.interfaceDescription": "设置应用主题和界面文字大小。",
-  "settings.zkaliFeatures.title": "zkali 功能",
-  "settings.zkaliFeatures.description": "zkali 发行版的内置行为开关。",
-  "settings.zkaliAutoClaim": "自动领取活动权益",
-  "settings.zkaliAutoClaimDescription":
-    "登录后弹出领取类活动窗口（如每晚 GLM 免费额度）时自动完成领取；关闭后需手动点击领取。",
   "settings.wallpaper.title": "壁纸",
   "settings.wallpaper.description": "在主画布背景上显示 zkali 内置主题壁纸。",
   "settings.wallpaper.enable": "启用壁纸",

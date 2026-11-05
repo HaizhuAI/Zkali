@@ -306,18 +306,6 @@ export function createMarketingTouchController(options: {
       )?.action;
       if (action) await run(candidate, action);
     },
-    async bannerAction(action: MarketingAction) {
-      // zkali 定制发行：自动领取按 action 精确执行，不能落在 clickBanner 的
-      // 「第一个非 close 按钮」语义上（claim 不一定是首按钮）。
-      const candidate = store.getState().banner;
-      if (
-        !candidate ||
-        candidate.delivery.resource_position !== "banner" ||
-        store.getState().dialog
-      )
-        return;
-      return run(candidate, action);
-    },
     async closeBanner() {
       const candidate = store.getState().banner;
       if (!candidate || store.getState().pending) return;

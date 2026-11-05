@@ -3351,11 +3351,6 @@ const enUS: Record<string, string> = {
   "settings.shortcuts.command.resetZoom": "Reset Zoom",
   "settings.appearance.interfaceTitle": "Interface Setting",
   "settings.appearance.interfaceDescription": "Choose the app theme and interface text size.",
-  "settings.zkaliFeatures.title": "zkali features",
-  "settings.zkaliFeatures.description": "Built-in behavior switches of the zkali distribution.",
-  "settings.zkaliAutoClaim": "Auto-claim campaign rewards",
-  "settings.zkaliAutoClaimDescription":
-    "Automatically completes claim campaigns (e.g. the nightly free GLM quota) when the claim window appears; turn off to claim manually.",
   "settings.wallpaper.title": "Wallpaper",
   "settings.wallpaper.description": "Show a built-in zkali theme wallpaper behind the main canvas.",
   "settings.wallpaper.enable": "Enable wallpaper",

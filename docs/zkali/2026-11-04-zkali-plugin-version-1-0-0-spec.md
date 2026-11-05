@@ -133,22 +133,16 @@ Hook 层       SessionStart → session-init.mjs
   指令两处；关闭方式 = 在 `~/.zcode/AGENTS.md` 写入任意非空内容
   （个性化层停用），系统提示词层为发行固定行为。
 
-## 自动领取防重复修复 + 设置开关（本轮）
+## 自动领取已回退
 
-- **Bug 根因**：此前轮询里见到 claim 动作即触发 `bannerAction`；结果为
-  uncertain（提交后无法确认）时 controller 清 banner，但下轮 refresh 服务端
-  重投同一 campaign → banner 重建 → 再次提交 → 再弹「无法确认操作结果」，
-  无限循环。
-- **修复语义**：只在投放「出现」时自动提交一次。
-  `autoClaimStateRef` 记录 `lastActiveKey`（position:campaign_id）与
-  `exhausted` 集合；同一投放停留期间不重复触发；结果/错误弹窗在屏
-  （pending、error）不追加提交；success / uncertain / terminal
-  结果的 campaign 记入 exhausted，本 session 永不再自动提交；
-  投放消失后再次出现视为新出现，可再触发一次（瞬时 failure 的重试通道）。
-  ref 挂在 Provider 组件层，controller 随依赖重建时记录不丢失。
-- **设置开关**：store 新增 `zkaliAutoClaim`（默认开，`zkali-auto-claim`
-  localStorage，broadcast 跨窗口同步）；通用设置页新增
-  `ZkaliFeatureSection`（zkali 功能区），内含自动领取开关。
+- 自动领取（轮询探测 `claim_zcode_plan` → 自动提交）经两轮修复后，
+  服务端侧对手动领取也会返回「无法确认操作结果」，问题不在客户端
+  提交路径而是服务端确认链路；按用户决定**整体回退该功能**：
+  MarketingTouchProvider 恢复为纯「refresh + showPending」轮询，
+  controller 的 `bannerAction`、store 的 `zkaliAutoClaim` 字段与
+  持久化/广播、通用设置的 ZkaliFeatureSection、相关 i18n 键全部移除。
+- 领取回归上游原生行为：banner/弹窗出现 → 用户手动点击领取按钮。
+  localStorage 残留的 `zkali-auto-claim` 键无害留存（不再被读取）。
 
 ## 壁纸模块与自定义导入
 

@@ -37,7 +37,6 @@ import {
 import {
   createMarketingTouchController,
   isMarketingBannerRenderable,
-  type MarketingActionResult,
   type MarketingTouchController,
 } from "@/components/marketing-touch/marketingTouchController.js";
 import {
@@ -75,15 +74,6 @@ export function MarketingTouchProvider({
   const upgradeTargetRef = useRef(upgradeTargetProviderId);
   upgradeTargetRef.current = upgradeTargetProviderId;
   const user = useZCodeStore((state) => state.user);
-  const zkaliAutoClaim = useZCodeStore((state) => state.zkaliAutoClaim);
-  const autoClaimEnabledRef = useRef(zkaliAutoClaim);
-  autoClaimEnabledRef.current = zkaliAutoClaim;
-  // 跨 runtime 重建保留：controller/poller 随 locale 等依赖重建时，已终结的
-  // campaign 不能复活重试（否则又回重复弹窗）。
-  const autoClaimStateRef = useRef({
-    lastActiveKey: null as string | null,
-    exhausted: new Set<string>(),
-  });
   const restoring = useZCodeStore((state) => state.isRestoringOAuthSession);
   const requestLogin = useZCodeStore((state) => state.requestLoginEntry);
   const openRewards = useOpenRewards();
@@ -309,51 +299,6 @@ export function MarketingTouchProvider({
       query: async () => {
         await controller.refresh();
         await controller.showPending();
-        // zkali 定制发行：登录态 + 设置开关开启时自动领取 claim_zcode_plan 投放。
-        // 关键约束（修复重复弹窗 bug）：只在投放「出现」时自动提交一次——按
-        // position:campaign_id 记录当前活跃 key；同一投放停留期间不重复触发；
-        // 结果弹窗/错误提示在屏时不追加提交；uncertain（无法确认结果）与终态失败
-        // 的 campaign 记入 exhausted，本 session 永不再自动提交。否则服务端在每轮
-        // refresh 后重投同一 campaign，banner 重建 → 再次提交 → 再次弹「无法确认」，
-        // 形成无限循环。
-        if (!user || !autoClaimEnabledRef.current) return;
-        const state = controller.store.getState();
-        if (state.pending || state.error) return;
-        const dialog = state.dialog;
-        const banner = state.banner;
-        let targetKey: string | null = null;
-        let fire: (() => Promise<MarketingActionResult | undefined>) | null = null;
-        if (dialog && !dialog.result && dialog.delivery.resource_position === "popup") {
-          const claim = dialog.delivery.popup.buttons.find(
-            (button) => button.action.type === "claim_zcode_plan",
-          )?.action;
-          if (claim) {
-            targetKey = `popup:${dialog.delivery.campaign_id}`;
-            fire = () => controller.dialogAction(claim);
-          }
-        } else if (!dialog && banner?.delivery.resource_position === "banner") {
-          const claim = banner.delivery.banner.buttons.find(
-            (button) => button.action.type === "claim_zcode_plan",
-          )?.action;
-          if (claim) {
-            targetKey = `banner:${banner.delivery.campaign_id}`;
-            fire = () => controller.bannerAction(claim);
-          }
-        }
-        if (!targetKey || !fire) {
-          // 投放消失后允许它在下次重新出现时再触发一次（新的“弹窗出现”）。
-          autoClaimStateRef.current.lastActiveKey = null;
-          return;
-        }
-        const claimState = autoClaimStateRef.current;
-        if (claimState.exhausted.has(targetKey) || claimState.lastActiveKey === targetKey) return;
-        claimState.lastActiveKey = targetKey;
-        const result = await fire();
-        if (
-          result &&
-          (result.status === "success" || result.status === "uncertain" || result.terminal)
-        )
-          claimState.exhausted.add(targetKey);
       },
       visible: () => document.visibilityState !== "hidden",
     });

@@ -130,7 +130,6 @@ import { SourceServerManagementPanel } from "@/settings/SourceServerManagementPa
 import { useSourceServerManagementSnapshot } from "@/hooks/useSourceServerManagementSnapshot.js";
 import { useOptionalRemoteWorkspaceController } from "@/remote/useRemoteWorkspaceController.js";
 import { AppearanceSectionContent } from "./settingsCodePreview.js";
-import { ZkaliFeatureSection } from "./zkali-wallpaper/index.js";
 import type { SettingsSectionId } from "@/lib/settingsNavigation.js";
 import { requestPluginStoreOpen } from "@/lib/pluginStoreNavigation.js";
 import {
@@ -1927,7 +1926,6 @@ export function SettingsPage({
                                 })
                               }
                             />
-                            <ZkaliFeatureSection />
                             </>
                           ) : activeSection === "dataSync" ? (
                             isDesktop ? (
