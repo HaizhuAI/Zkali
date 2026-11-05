@@ -1,41 +1,13 @@
 import { useEffect, useState, useCallback } from "react";
 
-export type Theme =
-  | "light"
-  | "dark"
-  | "zai-light"
-  | "zai-dark"
-  | "zkali-dream"
-  | "zkali-cyber"
-  | "zkali-nightops"
-  | "system";
+export type Theme = "light" | "dark" | "zai-light" | "zai-dark" | "system";
 export type ResolvedTheme = "light" | "dark";
 
-// zkali 沉浸式主题（Dream Skin 风格：主题色 + 半透明玻璃面板 + 配对壁纸）。
-const ZKALI_THEMES = new Set<Theme>(["zkali-dream", "zkali-cyber", "zkali-nightops"]);
-
 /** 与 styles.css 中变量块类名一一对应的应用类名。 */
-const APPLIED_THEME_CLASSES = [
-  "theme-zai-light",
-  "theme-zai-dark",
-  "theme-zkali-dream",
-  "theme-zkali-cyber",
-  "theme-zkali-nightops",
-] as const;
+const APPLIED_THEME_CLASSES = ["theme-zai-light", "theme-zai-dark"] as const;
 
 function appliedThemeClass(theme: Theme): string | null {
-  switch (theme) {
-    case "zai-light":
-      return "theme-zai-light";
-    case "zkali-dream":
-      return "theme-zkali-dream";
-    case "zkali-cyber":
-      return "theme-zkali-cyber";
-    case "zkali-nightops":
-      return "theme-zkali-nightops";
-    default:
-      return "theme-zai-dark";
-  }
+  return theme === "zai-light" ? "theme-zai-light" : "theme-zai-dark";
 }
 
 const STORAGE_KEY = "zcode-theme";
@@ -50,7 +22,7 @@ export function resolveTheme(theme: Theme): ResolvedTheme {
     return getSystemTheme();
   }
 
-  return theme === "dark" || theme === "zai-dark" || ZKALI_THEMES.has(theme) ? "dark" : "light";
+  return theme === "dark" || theme === "zai-dark" ? "dark" : "light";
 }
 
 export function normalizeThemePreference(theme: Theme): Theme {
@@ -112,9 +84,6 @@ function isTheme(value: string | null): value is Theme {
     value === "dark" ||
     value === "zai-light" ||
     value === "zai-dark" ||
-    value === "zkali-dream" ||
-    value === "zkali-cyber" ||
-    value === "zkali-nightops" ||
     value === "system"
   );
 }

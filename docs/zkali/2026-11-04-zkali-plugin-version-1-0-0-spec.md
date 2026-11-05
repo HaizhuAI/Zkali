@@ -150,20 +150,18 @@ Hook 层       SessionStart → session-init.mjs
   localStorage，broadcast 跨窗口同步）；通用设置页新增
   `ZkaliFeatureSection`（zkali 功能区），内含自动领取开关。
 
-## 沉浸式主题（Dream Skin 适配）
+## 壁纸模块与自定义导入
 
-- 参考 Codex-Dream-Skin「一张图一种心情」：主题 = 配色氛围 + 配对壁纸 +
-  半透明玻璃面板。`Theme` 新增 `zkali-dream`（梦境极光·紫）、
-  `zkali-cyber`（赛博终端·绿）、`zkali-nightops`（暗夜行动·蓝），
-  均 resolve 为 dark。
-- `applyTheme` 改为遍历应用类名表（`theme-zkali-*` 与 zai 类同级互斥）；
-  桌面/Web 启动 boot 块同步识别 `zkali-*` 存储值；
-  `WebRemoteControlThemeSeed` 联合类型同步扩展（远控/Web 链路不丢主题）。
-- styles.css：每个主题一套不透明基座变量（无壁纸也完整可读）；
-  `html.zkali-wallpaper.theme-zkali-*` 覆盖层把侧栏/头部/面板/卡片/标签
-  换成半透明色，并对 `.bg-sidebar|.bg-header|.bg-panel|.bg-card` 加
-  backdrop blur——壁纸从面板后透出，浮层（popover/menu/tooltip）
-  保持不透明保证可读性。
-- 主题↔壁纸联动：`THEME_WALLPAPER_PAIRS`（dream→neon-horizon、
-  cyber→signal-rain、nightops→hex-mesh），外观页选主题即整套生效，
-  用户仍可在壁纸区另行调整。主题选择器由 3 项扩为 6 项（i18n 双语）。
+- 界面主题维持系统/深色/浅色三项（曾尝试的 `zkali-*` 沉浸式主题因显示
+  问题已回退；`Theme`、`WebRemoteControlThemeSeed`、styles.css 主题块、
+  i18n 键与主题↔壁纸联动均已移除）。启动 boot 块仍把已存的 `zkali-*`
+  值解析为 dark，老用户偏好不炸。
+- 壁纸区在 zai 深/浅主题下工作：`html.zkali-wallpaper .bg-background`
+  透明穿透画布，卡片/终端/浮层保持不透明。
+- **自定义壁纸**：`WallpaperSettings.customDataUrl`（`data:image/` 前缀
+  校验）。外观设置「导入自定义壁纸」行调起 file input，
+  `customWallpaper.ts` 用 canvas 把图片降采样到 ≤3840 边、JPEG q0.85
+  转 data URL 持久化——不引本地路径（http 源下 file:// 会被拦，媒体
+  预览协议 30min TTL 会过期）。`settings.id === "custom"` 时壁纸层
+  改读 `customDataUrl`；画廊尾部出现自定义缩略图，悬停 × 可移除
+  （若正在使用则回退默认内置图）。导入失败在设置行描述位提示。

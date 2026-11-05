@@ -1,5 +1,5 @@
 import { useZCodeStore } from "@/store/StoreProvider.js";
-import { findWallpaper } from "./wallpapers.js";
+import { CUSTOM_WALLPAPER_ID, findWallpaper } from "./wallpapers.js";
 
 /**
  * 全局壁纸层：挂在 RootShell 第一个子位，absolute 铺满窗口。
@@ -11,16 +11,18 @@ export function ZkaliWallpaperLayer() {
   if (!settings.enabled) return null;
 
   const wallpaper = findWallpaper(settings.id);
+  const isCustom = settings.id === CUSTOM_WALLPAPER_ID;
+  const src = isCustom ? settings.customDataUrl : wallpaper?.url;
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
-      {wallpaper ? (
+      {src ? (
         <img
-          src={wallpaper.url}
+          src={src}
           alt=""
           draggable={false}
           className="h-full w-full object-cover"
           style={{
-            backgroundColor: wallpaper.baseColor,
+            backgroundColor: wallpaper?.baseColor ?? "#04090e",
             filter: settings.blurPx > 0 ? `blur(${settings.blurPx}px)` : undefined,
             transform: settings.blurPx > 0 ? "scale(1.05)" : undefined,
           }}

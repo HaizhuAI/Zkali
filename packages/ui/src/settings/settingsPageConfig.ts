@@ -18,8 +18,6 @@ import {
   Globe2,
   Cable,
   WandSparkles,
-  Sparkles,
-  Radar,
   HardDrive,
   Keyboard,
   FileSearch,
@@ -36,9 +34,6 @@ export const THEME_MODES: Array<{
   { mode: "system", icon: Monitor },
   { mode: "zai-dark", icon: Moon },
   { mode: "zai-light", icon: Sun },
-  { mode: "zkali-dream", icon: Sparkles },
-  { mode: "zkali-cyber", icon: Terminal },
-  { mode: "zkali-nightops", icon: Radar },
 ];
 
 export type SettingsSectionGroupId = "basics" | "agentCapabilities" | "dataAndStats";

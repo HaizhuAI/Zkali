@@ -20,8 +20,6 @@ import {
 import { getCodePreviewTheme } from "@/lib/codePreviewPreferences.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { WallpaperSection } from "@/zkali-wallpaper/index.js";
-import { THEME_WALLPAPER_PAIRS } from "@/zkali-wallpaper/wallpapers.js";
-import { useZCodeStore } from "@/store/StoreProvider.js";
 import type { CodePreviewSettings } from "@/store/index.js";
 import { THEME_MODES } from "@/settings/settingsPageConfig.js";
 import { MAX_UI_FONT_SIZE_PX, MIN_UI_FONT_SIZE_PX } from "@/lib/uiFontSize.js";
@@ -98,13 +96,8 @@ export function AppearanceSectionContent({
 }) {
   const { intl } = useZCodeIntl();
   const activePreviewMode = resolveTheme(theme);
-  const setWallpaperSettings = useZCodeStore((state) => state.setWallpaperSettings);
   const onThemeChange = (value: string) => {
-    const next = value as Theme;
-    setTheme(next);
-    // Dream Skin 联动：沉浸主题自带配对壁纸，选中即整套生效。
-    const pairedWallpaper = THEME_WALLPAPER_PAIRS[next];
-    if (pairedWallpaper) setWallpaperSettings({ enabled: true, id: pairedWallpaper });
+    setTheme(value as Theme);
   };
 
   return (
