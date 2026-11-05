@@ -60,7 +60,7 @@ const ABOUT_APPLICATION_NAME = "zkali Desktop App";
 // 自定义 About 内容本体是 256x280；原生窗口如果同尺寸会让内容贴满透明窗口边界。
 // 这里给 BrowserWindow 额外留出背景呼吸空间，避免正式 About 看起来比 demo 更局促。
 const ABOUT_WINDOW_WIDTH = 256;
-const ABOUT_WINDOW_HEIGHT = 312;
+const ABOUT_WINDOW_HEIGHT = 360;
 const ABOUT_MESSAGES: Record<
   Locale,
   {
@@ -68,6 +68,8 @@ const ABOUT_MESSAGES: Record<
     versionLabel: string;
     okButtonLabel: string;
     optimizedForAppleSilicon: string;
+    authorLine: string;
+    communityLine: string;
     copyright: (year: number) => string;
   }
 > = {
@@ -76,6 +78,8 @@ const ABOUT_MESSAGES: Record<
     versionLabel: "版本",
     okButtonLabel: "确定",
     optimizedForAppleSilicon: "已针对 Apple Silicon 优化。",
+    authorLine: "作者：Haizhu",
+    communityLine: "QQ交流群：1103140884",
     copyright: (year) => `版权所有 © ${year} zkali。`,
   },
   "en-US": {
@@ -83,6 +87,8 @@ const ABOUT_MESSAGES: Record<
     versionLabel: "version",
     okButtonLabel: "OK",
     optimizedForAppleSilicon: "Optimized for Apple Silicon.",
+    authorLine: "Author: Haizhu",
+    communityLine: "QQ Group: 1103140884",
     copyright: (year) => `Copyright © ${year} zkali.`,
   },
 };
@@ -282,6 +288,8 @@ export async function showAboutDialog(
         optimizationLine: formatAboutOptimizationLine(snapshot, locale),
         versionLabel: aboutMessages.versionLabel,
         okButtonLabel: aboutMessages.okButtonLabel,
+        authorLine: aboutMessages.authorLine,
+        communityLine: aboutMessages.communityLine,
       }),
     )}`,
   );

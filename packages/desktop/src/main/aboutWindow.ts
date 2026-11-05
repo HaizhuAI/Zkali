@@ -5,6 +5,9 @@ interface CustomAboutDialogHtmlInput {
   optimizationLine: string;
   versionLabel: string;
   okButtonLabel: string;
+  /** zkali 发行版作者与社群信息行。 */
+  authorLine: string;
+  communityLine: string;
 }
 
 function escapeHtml(value: string): string {
@@ -197,6 +200,8 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
           </h1>
           <div class="meta">
             ${input.optimizationLine ? `<div>${escapeHtml(input.optimizationLine)}</div>` : ""}
+            <div>${escapeHtml(input.authorLine)}</div>
+            <div>${escapeHtml(input.communityLine)}</div>
             <div>${escapeHtml(input.copyright)}</div>
           </div>
         </div>
