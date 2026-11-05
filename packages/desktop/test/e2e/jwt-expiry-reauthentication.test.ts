@@ -11,7 +11,7 @@ const EXPIRED_SESSION_CREDENTIAL_KEYS = [
   "zcodejwttoken",
 ] as const;
 
-describe("ZCode JWT 过期后重新认证", () => {
+describe("zkali JWT 过期后重新认证", () => {
   after(async () => {
     await browser.electron.restoreAllMocks();
     await clearAppData();

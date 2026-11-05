@@ -83,7 +83,7 @@ async function prepareFileChangeFindFixture() {
     createdFixtureRepository = true;
   }
 
-  await runGit(GIT_BINARY, ["config", "user.name", "ZCode E2E"], {
+  await runGit(GIT_BINARY, ["config", "user.name", "zkali E2E"], {
     cwd: DEFAULT_WORKSPACE,
   });
   await runGit(GIT_BINARY, ["config", "user.email", "zcode-e2e@example.com"], {

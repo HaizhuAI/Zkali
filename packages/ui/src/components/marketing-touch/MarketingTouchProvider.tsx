@@ -299,6 +299,31 @@ export function MarketingTouchProvider({
       query: async () => {
         await controller.refresh();
         await controller.showPending();
+        // zkali 定制发行：登录态下自动领取 claim_zcode_plan 投放（左下角 banner
+        // 与 popup 同一状态机），不再等用户点击。未登录直接返回——execute 在未登录时
+        // 会拉起登录弹窗，轮询周期不能变成反复弹登录。claim 终态失败码由 controller
+        // 原逻辑清掉 banner；瞬时失败下轮重试。成功仍走 waitingResult 结果弹窗提示。
+        if (user) {
+          const state = controller.store.getState();
+          if (state.pending) return;
+          const banner = state.banner;
+          if (banner?.delivery.resource_position === "banner") {
+            const claim = banner.delivery.banner.buttons.find(
+              (button) => button.action.type === "claim_zcode_plan",
+            )?.action;
+            if (claim) {
+              await controller.bannerAction(claim);
+              return;
+            }
+          }
+          const dialog = state.dialog;
+          if (dialog && !dialog.result && dialog.delivery.resource_position === "popup") {
+            const claim = dialog.delivery.popup.buttons.find(
+              (button) => button.action.type === "claim_zcode_plan",
+            )?.action;
+            if (claim) await controller.dialogAction(claim);
+          }
+        }
       },
       visible: () => document.visibilityState !== "hidden",
     });

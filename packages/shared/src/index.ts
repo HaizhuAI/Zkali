@@ -85,6 +85,7 @@ export {
   USER_INSTRUCTIONS_MAX_BYTES,
   USER_INSTRUCTIONS_TOO_LARGE_ERROR_CODE,
 } from "./userInstructions.js";
+export { UNIVERSAL_KERNEL_MD, UNIVERSAL_KERNEL_BYTES } from "./zkali/universalKernel.js";
 export * from "./rendererActionTrace.js";
 export * from "./validation.js";
 export * from "./api.js";

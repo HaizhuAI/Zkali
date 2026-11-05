@@ -234,10 +234,10 @@ test("rejects empty SEA target selectors", () => {
 });
 
 test("maps SEA targets to output binary names", () => {
-  assert.equal(outputBinaryName("darwin-arm64"), "zcode-darwin-arm64");
-  assert.equal(outputBinaryName("linux-x64"), "zcode-linux-x64");
-  assert.equal(outputBinaryName("win-arm64"), "zcode-windows-arm64.exe");
-  assert.equal(outputBinaryName("win-x64"), "zcode-windows-x64.exe");
+  assert.equal(outputBinaryName("darwin-arm64"), "zkali-darwin-arm64");
+  assert.equal(outputBinaryName("linux-x64"), "zkali-linux-x64");
+  assert.equal(outputBinaryName("win-arm64"), "zkali-windows-arm64.exe");
+  assert.equal(outputBinaryName("win-x64"), "zkali-windows-x64.exe");
 });
 
 test("prepares every SEA target in the desktop bundled-tools layout", () => {
@@ -885,6 +885,23 @@ test("allows skill-only official plugins when SEA runtime assets are required", 
     // 0.4.0 起带 Sites 面板：插件自己构建的 server 与面板页面是必需运行时产物。
     await writeTestFile(root, "packages/zcode-site-plugin/dist/server.mjs", "");
     await writeTestFile(root, "packages/zcode-site-plugin/dist/ui/panel.html", "");
+    // zkali：脚本型插件（无编译 runtime），seed 钉住 manifest/agents/skills/commands/hooks/scripts。
+    await writeTestFile(root, "packages/zkali-plugin/.zcode-plugin/plugin.json", "{}");
+    await writeTestFile(root, "packages/zkali-plugin/agents/zkali-recon.md", "");
+    await writeTestFile(root, "packages/zkali-plugin/agents/zkali-reverse.md", "");
+    await writeTestFile(root, "packages/zkali-plugin/agents/zkali-pwn.md", "");
+    await writeTestFile(root, "packages/zkali-plugin/agents/zkali-web.md", "");
+    await writeTestFile(root, "packages/zkali-plugin/agents/zkali-ctf.md", "");
+    await writeTestFile(root, "packages/zkali-plugin/agents/zkali-audit.md", "");
+    await writeTestFile(root, "packages/zkali-plugin/agents/zkali-red.md", "");
+    await writeTestFile(root, "packages/zkali-plugin/agents/zkali-blue.md", "");
+    await writeTestFile(root, "packages/zkali-plugin/agents/zkali-proxy.md", "");
+    await writeTestFile(root, "packages/zkali-plugin/skills/zkali-kernel/SKILL.md", "");
+    await writeTestFile(root, "packages/zkali-plugin/commands/recon.md", "");
+    await writeTestFile(root, "packages/zkali-plugin/hooks/hooks.json", "{}");
+    await writeTestFile(root, "packages/zkali-plugin/scripts/session-init.mjs", "");
+    await writeTestFile(root, "packages/zkali-plugin/scripts/cmd-journal.mjs", "");
+    await writeTestFile(root, "packages/zkali-plugin/scripts/zkali-toolbox.mjs", "");
 
     const { manifest } = await collectSeaOfficialPluginAssets({
       requireRuntime: true,
@@ -1288,7 +1305,7 @@ test("can be dynamically imported when argv[1] is missing", () => {
   );
 
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout.trim(), "zcode-windows-x64.exe");
+  assert.equal(result.stdout.trim(), "zkali-windows-x64.exe");
 });
 
 async function writeDocumentPluginFixtures(root) {

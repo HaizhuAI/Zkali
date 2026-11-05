@@ -166,7 +166,7 @@ export interface AgentRuntimeConfig {
   runtimeFeatures?: {
     /**
      * 是否注册 node_repl 工具（js）。
-     * 由 bootstrap 根据 ZCode 官方插件启停推导，不由普通插件 manifest 自声明。
+     * 由 bootstrap 根据 zkali 官方插件启停推导，不由普通插件 manifest 自声明。
      */
     nodeRepl?: boolean;
     /**

@@ -354,7 +354,7 @@ describe("SSV01/02/04 后台运行 session 的切换稳定性", () => {
       expect(returned.some((sample: any) => sample.stop)).toBe(true);
       expect(
         returned.filter((sample: any) =>
-          /询问任何|Ask (?:ZCode )?anything|开始新|新任务/.test(sample.placeholder ?? ""),
+          /询问任何|Ask (?:zkali )?anything|开始新|新任务/.test(sample.placeholder ?? ""),
         ),
       ).toEqual([]);
       expect(new Set(returned.map((sample: any) => sample.editor)).size).toBe(1);

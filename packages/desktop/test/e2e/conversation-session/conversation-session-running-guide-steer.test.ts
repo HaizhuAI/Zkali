@@ -238,7 +238,7 @@ Message from coordinator:
       expect(wireText(lastInput.content)).not.toContain(
         "The coordinator sent a message while you were working:",
       );
-      expect(wireText(lastInput.content)).not.toContain("Another ZCode session sent a message:");
+      expect(wireText(lastInput.content)).not.toContain("Another zkali session sent a message:");
       for (const [marker, body] of [
         [guideOneMarker, `${guideOneMarker}: apply the first guide after the Read result batch.`],
         [guideTwoMarker, `${guideTwoMarker}: apply the second guide after the text-only response.`],

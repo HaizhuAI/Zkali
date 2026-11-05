@@ -1,0 +1,17 @@
+{
+  "name": "zkali",
+  "version": "1.0.0",
+  "description": "网安团队智能体：AI 逆向 / AI 编程 / CTF 解题 / 授权红蓝对抗渗透。内置 9 个专项子智能体（含代理通道）、10 个领域技能、7 个斜杠命令、SessionStart 自动编排与 zkali-toolbox MCP（工具探测/受控执行/CTF密码学/作战日志）。",
+  "author": { "name": "zkali-team" },
+  "license": "MIT",
+  "keywords": ["security", "reverse-engineering", "ctf", "pentest", "red-team", "blue-team", "pwn"],
+  "skills": "./skills",
+  "commands": "./commands",
+  "agents": "./agents",
+  "mcpServers": {
+    "zkali-toolbox": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/zkali-toolbox.mjs"]
+    }
+  }
+}

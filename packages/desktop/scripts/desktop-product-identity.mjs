@@ -5,21 +5,24 @@
  */
 export const ZCODE_PREVIEW_IDENTITY_ENV = "ZCODE_PREVIEW_IDENTITY";
 
+// zkali 定制发行：产品身份更名为 zkali；appId 同步换成 dev.zkali.* 避免与上游
+// ZCode 安装互相覆盖。zcode:// deep link scheme、~/.zcode 数据目录、zcode.z.ai
+// 端点与 ZCODE_* 环境变量属于管道面，保持原名以保留账号登录与既有配置。
 const PRODUCTION_IDENTITY = Object.freeze({
   flavor: "production",
-  appId: "dev.zcode.app",
-  productName: "ZCode",
-  linuxExecutableName: "zcode",
-  linuxPackageName: "zcode",
+  appId: "dev.zkali.app",
+  productName: "zkali",
+  linuxExecutableName: "zkali",
+  linuxPackageName: "zkali",
   cuaHelperInstallVariant: null,
 });
 
 const PREVIEW_IDENTITY = Object.freeze({
   flavor: "preview",
-  appId: "dev.zcode.app.preview",
-  productName: "ZCode Preview",
-  linuxExecutableName: "zcode-preview",
-  linuxPackageName: "zcode-preview",
+  appId: "dev.zkali.app.preview",
+  productName: "zkali Preview",
+  linuxExecutableName: "zkali-preview",
+  linuxPackageName: "zkali-preview",
   cuaHelperInstallVariant: "preview",
 });
 
@@ -84,7 +87,7 @@ export function resolveDesktopArtifactSuffix(env = process.env) {
  */
 export function resolveWindowsAppUserModelIdForFlavor(flavor, runtime = { isPackaged: true }) {
   if (runtime.isPackaged === false) {
-    return "cn.aminer.zcode";
+    return "cn.aminer.zkali";
   }
   return desktopProductIdentities[flavor === "preview" ? "preview" : "production"].appId;
 }

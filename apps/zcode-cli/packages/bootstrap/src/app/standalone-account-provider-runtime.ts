@@ -79,7 +79,7 @@ export async function resolveStandaloneCodingPlanProvider(
   );
   if (matches.length !== 1) {
     throw new Error(
-      `ZCode Built-in Config 必须为 ${family} 声明唯一 Individual Coding Plan Provider`,
+      `zkali Built-in Config 必须为 ${family} 声明唯一 Individual Coding Plan Provider`,
     );
   }
   return matches[0]!;

@@ -289,7 +289,7 @@ export class BigModelCodingPlanSubscriptionProvider {
         timeoutMs: REQUEST_TIMEOUT_MS,
       },
     );
-    // 新 ZCode billing 接口沿用平台 envelope（code=0 成功），不能复用
+    // 新 zkali billing 接口沿用平台 envelope（code=0 成功），不能复用
     // BigModel 支付接口的 code=200 解包器，否则合法 preview 会被误判失败。
     if (payload.code !== undefined && payload.code !== 0) {
       throw new Error(payload.msg?.trim() || "manual_claim_preview_failed");
@@ -812,7 +812,7 @@ export class BigModelCodingPlanSubscriptionProvider {
       return await this.clientConfigRequest;
     }
 
-    // client/configs 和其他 ZCode 平台接口必须共享运行时 endpoint；
+    // client/configs 和其他 zkali 平台接口必须共享运行时 endpoint；
     // E2E/测试环境会通过 ZCODE_BASE_URL 指向本地 mock，硬编码线上域名会让套餐状态不可控。
     const url = resolveCodingPlanClientConfigUrl(process.env);
     url.searchParams.set("app_version", ZCODE_VERSION);
@@ -1327,11 +1327,11 @@ function unwrapClientConfigProducts(
   payload: ZCodeClientConfigEnvelope,
 ): CodingPlanStaticProductsConfig {
   if (payload.code !== undefined && payload.code !== 0) {
-    throw new Error(payload.msg?.trim() || "ZCode client config request failed");
+    throw new Error(payload.msg?.trim() || "zkali client config request failed");
   }
   const products = payload.data?.configs?.codingPlanStaticProducts;
   if (!products || typeof products !== "object") {
-    throw new Error("ZCode client config missing Coding Plan products");
+    throw new Error("zkali client config missing Coding Plan products");
   }
   return normalizeStaticProductProviderIds(products);
 }
@@ -1340,11 +1340,11 @@ function unwrapClientConfigTeamProducts(
   payload: ZCodeClientConfigEnvelope,
 ): CodingPlanStaticTeamProductsConfig {
   if (payload.code !== undefined && payload.code !== 0) {
-    throw new Error(payload.msg?.trim() || "ZCode client config request failed");
+    throw new Error(payload.msg?.trim() || "zkali client config request failed");
   }
   const products: unknown = payload.data?.configs?.codingPlanStaticTeamProducts;
   if (!products || typeof products !== "object") {
-    throw new Error("ZCode client config missing Coding Plan team products");
+    throw new Error("zkali client config missing Coding Plan team products");
   }
   for (const providerProducts of Object.values(products)) {
     if (
@@ -1353,7 +1353,7 @@ function unwrapClientConfigTeamProducts(
     ) {
       // 远端配置没有运行时类型保障；无效静态目录必须整体降级为读取失败，
       // 让 UI 继续使用实时 pricing 恢复团队订阅身份，不能在合并阶段抛错。
-      throw new Error("ZCode client config has invalid Coding Plan team products");
+      throw new Error("zkali client config has invalid Coding Plan team products");
     }
   }
   return normalizeStaticProductProviderIds(products as CodingPlanStaticTeamProductsConfig);
@@ -1404,7 +1404,7 @@ function unwrapClientConfigBillingDiscount(
   payload: ZCodeClientConfigEnvelope,
 ): CodingPlanBillingDiscountConfig | undefined {
   if (payload.code !== undefined && payload.code !== 0) {
-    throw new Error(payload.msg?.trim() || "ZCode client config request failed");
+    throw new Error(payload.msg?.trim() || "zkali client config request failed");
   }
   const configs = payload.data?.configs;
   if (!configs || !("codingPlanBillingDiscount" in configs)) {
@@ -1417,7 +1417,7 @@ function unwrapClientConfigStartPlanPreview(
   payload: ZCodeClientConfigEnvelope,
 ): StartPlanPreviewConfig | null {
   if (payload.code !== undefined && payload.code !== 0) {
-    throw new Error(payload.msg?.trim() || "ZCode client config request failed");
+    throw new Error(payload.msg?.trim() || "zkali client config request failed");
   }
   const preview = payload.data?.configs?.startPlanPreview;
   if (!preview) {
@@ -1428,7 +1428,7 @@ function unwrapClientConfigStartPlanPreview(
     typeof preview.name !== "string" ||
     !Array.isArray(preview.entitlements)
   ) {
-    throw new Error("ZCode client config invalid Start Plan preview");
+    throw new Error("zkali client config invalid Start Plan preview");
   }
   return {
     planId: preview.planId,
@@ -1441,7 +1441,7 @@ function unwrapClientConfigForceUpdate(
   payload: ZCodeClientConfigEnvelope,
 ): ForceUpdateConfig | null {
   if (payload.code !== undefined && payload.code !== 0) {
-    throw new Error(payload.msg?.trim() || "ZCode client config request failed");
+    throw new Error(payload.msg?.trim() || "zkali client config request failed");
   }
 
   const forceUpdate = payload.data?.configs?.forceUpdate;
@@ -1558,7 +1558,7 @@ function dropUndefined(value: Record<string, unknown>): Record<string, unknown> 
 
 /**
  * 闲时任务灰度判据（纯函数供单测）：远端只提供曝光开关，模型成员和事实
- * 来自 ZCode Built-in Provider / Model Config。
+ * 来自 zkali Built-in Provider / Model Config。
  * mock 模式（ZCODE_OFFPEAK_MOCK=1）只替代产品曝光与套餐状态；模型候选仍来自 Registry。
  */
 export function resolveOffPeakClientConfig(

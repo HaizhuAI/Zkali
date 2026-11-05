@@ -42,7 +42,7 @@ async function cleanupTempFile(filePath: string): Promise<void> {
 }
 
 it("isNest 调用直接跳过，不触发 vsigntool", async () => {
-  await signWindowsHook({ path: "C:\\app\\ZCode.exe", isNest: true });
+  await signWindowsHook({ path: "C:\\app\\zkali.exe", isNest: true });
   expect(spawnSyncMock).not.toHaveBeenCalled();
 });
 
@@ -63,7 +63,7 @@ it("非 PE 二进制（Mach-O/ELF）跳过签名，不触发 vsigntool", async (
 });
 
 it("PE（MZ）文件正常交给 vsigntool 签名", async () => {
-  const exe = await createTempFile("ZCode.exe", Buffer.from([0x4d, 0x5a, 0x90, 0x00]));
+  const exe = await createTempFile("zkali.exe", Buffer.from([0x4d, 0x5a, 0x90, 0x00]));
   spawnSyncMock.mockReturnValue({ status: 0 });
   try {
     await signWindowsHook({ path: exe });

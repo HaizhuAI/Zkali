@@ -33,7 +33,7 @@ describe("desktop renderer Vite dependency aliases", () => {
   const isWindows = process.platform === "win32";
 
   (isWindows ? it.skip : it)(
-    "injects the selected ZCode endpoint origin into renderer env",
+    "injects the selected zkali endpoint origin into renderer env",
     async () => {
       vi.stubEnv("ZCODE_ENV", "test");
       vi.stubEnv("ZCODE_BASE_URL", "");

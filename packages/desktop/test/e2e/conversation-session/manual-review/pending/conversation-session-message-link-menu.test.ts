@@ -89,8 +89,8 @@ describe("消息正文链接菜单", () => {
         await openMenu();
         const expected =
           locale === "zh-CN"
-            ? ["在 ZCode 中打开", "在浏览器中打开", "复制链接"]
-            : ["Open in ZCode", "Open in browser", "Copy link"];
+            ? ["在 zkali 中打开", "在浏览器中打开", "复制链接"]
+            : ["Open in zkali", "Open in browser", "Copy link"];
         await browser.waitUntil(
           async () =>
             JSON.stringify(

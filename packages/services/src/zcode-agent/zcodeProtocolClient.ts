@@ -192,7 +192,7 @@ export class ZCodeProtocolClient implements IDisposable {
       transport.onClose((event) => {
         this.storageStartup.dispose();
         const suffix = event.reason ? `: ${event.reason}` : "";
-        this.rejectAll(new Error(`ZCode agent transport closed${suffix}`));
+        this.rejectAll(new Error(`zkali agent transport closed${suffix}`));
         this.closeEmitter.fire();
       }),
     );

@@ -1078,7 +1078,7 @@ describe(`${MARKER}: 数据同步功能演示走查`, () => {
 
     await chapter({
       key: "intro",
-      title: "ZCode 数据同步 · 功能演示",
+      title: "zkali 数据同步 · 功能演示",
       bullets: [
         "把本机的用户级配置推送到远端设备（SSH / WSL / Docker）",
         "六类内容：子智能体、插件、MCP 服务器、技能、命令、钩子；模型提供商只读",

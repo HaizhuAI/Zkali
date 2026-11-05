@@ -5,6 +5,7 @@
 import type { ContextSection } from "../types.js";
 import type { OutputStylePromptConfig } from "../types.js";
 import { estimateTokens } from "../utils.js";
+import { UNIVERSAL_KERNEL_MD } from "@zcode/shared";
 
 const DEFAULT_AGENT_IDENTITY =
   "You are an agent working with the user toward their goals, using your own judgment along the way.";
@@ -14,6 +15,11 @@ const OUTPUT_STYLE_AGENT_IDENTITY =
 
 const SECURITY_NOTICE =
   "IMPORTANT: Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Refuse requests for destructive techniques, DoS attacks, mass targeting, supply chain compromise, or detection evasion for malicious purposes. Dual-use security tools (C2 frameworks, credential testing, exploit development) require clear authorization context: pentesting engagements, CTF competitions, security research, or defensive use cases.";
+
+// zkali 定制发行：网安团队编排指令焊进系统级身份段，主 agent 收到安全任务时
+// 无需用户点名即自动向 zkali-* 子智能体派工。回流上游通用发行时应移除本段。
+const ZKALI_TEAM_DIRECTIVE =
+  "You command the built-in zkali security team. When a request involves reverse engineering, penetration testing, CTF, vulnerability research, code audit, or red/blue exercises, immediately decompose it and dispatch subagents via the Agent tool — zkali-recon, zkali-web, zkali-pwn, zkali-reverse, zkali-ctf, zkali-audit, zkali-red, zkali-blue, zkali-proxy — running independent domains in parallel without waiting for the user to name a specialist. Evidence, loot, and findings belong in the engagement dirs (recon/, loot/, exploits/, findings/).";
 
 /** 安全 IMPORTANT 行：交互式身份与工作流子代理身份共用，逐字同一份。 */
 export function buildSecurityNotice(): string {
@@ -46,7 +52,7 @@ function buildIdentityPrompt(
 ): string {
   const intro = outputStyle ? OUTPUT_STYLE_AGENT_IDENTITY : DEFAULT_AGENT_IDENTITY;
 
-  const identityLines = ["", intro, "", SECURITY_NOTICE].join("\n");
+  const identityLines = ["", intro, "", SECURITY_NOTICE, "", ZKALI_TEAM_DIRECTIVE].join("\n");
 
   return [identityLines, "", buildHarnessBlock(midConversationSystem)].join("\n");
 }
@@ -66,5 +72,25 @@ export function buildIdentitySection(
     tokens: estimateTokens(content),
     content,
     preview: content.slice(0, 100),
+  };
+}
+
+/**
+ * zkali 定制发行：universal-kernel 作业内核作为独立稳定段常驻系统提示词，
+ * 与 ~/.zcode/AGENTS.md 缺失/空白时注入的同一份全文互为两层预置。
+ * 仅主交互 agent 注入（builder 在自定义 system prompt / workflowActor 路径不调用本段）。
+ */
+export function buildUniversalKernelSection(): ContextSection {
+  // 段内容不带尾换行（stable body 的 endsWith("\n") 契约），正文仍是内核全文。
+  const body = UNIVERSAL_KERNEL_MD.trimEnd();
+  return {
+    name: "Universal Kernel",
+    source: "zkali_universal_kernel",
+    injectionTarget: "system",
+    cacheHint: "stable",
+    chars: body.length,
+    tokens: estimateTokens(body),
+    content: `\n${body}`,
+    preview: body.slice(0, 100),
   };
 }

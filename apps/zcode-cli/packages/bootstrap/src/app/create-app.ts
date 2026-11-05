@@ -325,7 +325,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
         ),
       };
     }
-    startupTimer.mark("ZCode runtime configuration resolved", {
+    startupTimer.mark("zkali runtime configuration resolved", {
       context: runtimeConfigLogContext(runtimeConfig, workingDirectory),
       event: "bootstrap.app.startup.runtime_config.completed",
       stage: "resolve_runtime_config",
@@ -364,7 +364,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
       ...(options.workspaceHookReviewHost
         ? {
             emitReviewEvent: async (event) => {
-              if (!runtime) throw new Error("ZCode runtime is not initialized yet.");
+              if (!runtime) throw new Error("zkali runtime is not initialized yet.");
               await runtime.appendEvent(
                 createSessionEvent(event.type, sessionId, event.payload, {
                   traceId: traceContext.traceId,
@@ -373,7 +373,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
               );
             },
             emitAdmissionEvent: async (event) => {
-              if (!runtime) throw new Error("ZCode runtime is not initialized yet.");
+              if (!runtime) throw new Error("zkali runtime is not initialized yet.");
               await runtime.appendEvent(
                 createSessionEvent(event.type, sessionId, event.payload, {
                   traceId: traceContext.traceId,
@@ -512,7 +512,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
       runtimeConfig,
     });
     const getRuntime = (): AgentRuntime => {
-      if (!runtime) throw new Error("ZCode runtime is not initialized yet.");
+      if (!runtime) throw new Error("zkali runtime is not initialized yet.");
       return runtime;
     };
     let resumePrepared = false;
@@ -1518,7 +1518,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
     providerModelRuntime?.dispose();
     void modelTelemetry.shutdown().catch(() => undefined);
     void ownedNodeReplBrowserBroker?.close();
-    startupTimer.fail("ZCode app startup failed", error, {
+    startupTimer.fail("zkali app startup failed", error, {
       context: { sessionId, workingDirectory },
       event: "bootstrap.app.startup.failed",
       stage: "total",

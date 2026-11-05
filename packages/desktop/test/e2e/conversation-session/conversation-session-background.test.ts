@@ -1068,9 +1068,9 @@ describe("会话区 Background Runtime Task E2E", () => {
           "Successfully stopped task:",
           "<task-notification>",
           "<tool-use-id>toolu_e2e_background_taskstop_agent</tool-use-id>",
-          // 模型用 TaskStop 停止：summary 写明是 ZCode 停止的。
+          // 模型用 TaskStop 停止：summary 写明是 zkali 停止的。
           "<status>killed</status>",
-          "was stopped by ZCode</summary>",
+          "was stopped by zkali</summary>",
         ],
         lastUserMessageIncludes: ["<task-notification>"],
       },

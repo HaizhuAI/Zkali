@@ -226,6 +226,35 @@ export const officialSeaPlugins = [
     rootPath: join("packages", "zcode-site-plugin"),
     version: "0.4.2",
   },
+  {
+    // zkali 定制发行：网安团队插件，MCP 为纯 Node 脚本（scripts/zkali-toolbox.mjs），
+    // 无编译产物，requiresRuntime:false。版本与 package.json / plugin.json /
+    // official-plugin-definitions.ts 同步 bump——runtime 按 (name, version) 精确匹配。
+    marketplace: "zcode-plugins-official",
+    name: "zkali",
+    packageName: "@zcode/zkali-plugin",
+    requiresRuntime: false,
+    requiredSeedPaths: [
+      ".zcode-plugin/plugin.json",
+      "agents/zkali-recon.md",
+      "agents/zkali-reverse.md",
+      "agents/zkali-pwn.md",
+      "agents/zkali-web.md",
+      "agents/zkali-ctf.md",
+      "agents/zkali-audit.md",
+      "agents/zkali-red.md",
+      "agents/zkali-blue.md",
+      "agents/zkali-proxy.md",
+      "skills/zkali-kernel/SKILL.md",
+      "commands/recon.md",
+      "hooks/hooks.json",
+      "scripts/session-init.mjs",
+      "scripts/cmd-journal.mjs",
+      "scripts/zkali-toolbox.mjs",
+    ],
+    rootPath: join("packages", "zkali-plugin"),
+    version: "1.0.0",
+  },
   // superpowers 已从内置插件下线，改走 UI 推荐区按需安装；这里不再打入 SEA 资源清单。
 ];
 

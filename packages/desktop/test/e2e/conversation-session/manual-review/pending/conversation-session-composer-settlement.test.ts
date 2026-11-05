@@ -198,7 +198,7 @@ describe("CST Composer 首发结算与提示交接", () => {
     const empty = result.frames.filter((frame) => !frame.text.trim());
     expect(empty.length).toBeGreaterThan(0);
     expect(empty.every((frame) => frame.sameEditor)).toBe(true);
-    expect(empty.some((frame) => frame.placeholder?.startsWith("Ask ZCode anything"))).toBe(false);
+    expect(empty.some((frame) => frame.placeholder?.startsWith("Ask zkali anything"))).toBe(false);
   });
 
   for (const nextInput of [false, true]) {

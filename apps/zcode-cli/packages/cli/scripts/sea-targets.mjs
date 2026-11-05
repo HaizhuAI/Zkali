@@ -49,7 +49,7 @@ export const targetParts = (target) => {
 export const outputBinaryName = (target) => {
   const { arch, outputPlatform, releasePlatform } = targetParts(target);
   const extension = releasePlatform === "win" ? ".exe" : "";
-  return `zcode-${outputPlatform}-${arch}${extension}`;
+  return `zkali-${outputPlatform}-${arch}${extension}`;
 };
 
 export const nodeReleaseArtifact = (target, nodeVersion) => {

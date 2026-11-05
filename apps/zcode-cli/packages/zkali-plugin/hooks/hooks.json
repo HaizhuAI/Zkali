@@ -1,0 +1,31 @@
+{
+  "description": "zkali engagement hooks — 会话启动时初始化作战工作区并把工具矩阵注入上下文。",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/session-init.mjs\"",
+            "timeout": 15,
+            "statusMessage": "初始化 zkali 作战工作区"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/cmd-journal.mjs\"",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -35,7 +35,7 @@ const PEER_UNIT = "zcode-peer-host.service";
 // 与真实共享 home 下另一台主机的 user manager 读到的位置相同。
 const PEER_UNIT_CONTENT = [
   "[Unit]",
-  "Description=ZCode Server on a peer host sharing this home",
+  "Description=zkali Server on a peer host sharing this home",
   "[Service]",
   `ExecStart=/usr/bin/unshare --user --map-root-user --pid --fork --kill-child --mount-proc ${DEV.home}/.zcode/server/bin/zcode serve --supervisor --service-entry --server-root ${DEV.home}/.zcode/server`,
   "Restart=on-failure",

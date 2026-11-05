@@ -96,7 +96,7 @@ describe("会话区 subagent prompt assembly E2E", () => {
 
     await runSubagentPromptAssemblyScenario({
       agentPromptIncludes: [
-        "You are an agent for ZCode CLI",
+        "You are an agent for zkali CLI",
         "the caller will relay this to the user",
       ],
       agentPromptExcludes: [CUSTOM_AGENT_PROMPT_MARKER],
@@ -113,7 +113,7 @@ describe("会话区 subagent prompt assembly E2E", () => {
     // 全局新建会改变 cwd，导致 custom child 缺少本项目的 AGENTS.md 指令。
     await prepareV4ConversationE2E({ skipProvider: true });
     await runSubagentPromptAssemblyScenario({
-      agentPromptIncludes: ["You are ZCode Explore", "READ-ONLY MODE"],
+      agentPromptIncludes: ["You are zkali Explore", "READ-ONLY MODE"],
       agentPromptExcludes: [CUSTOM_AGENT_PROMPT_MARKER],
       childMarker: EXPLORE_CHILD_MARKER,
       childReplyToken: EXPLORE_CHILD_REPLY_TOKEN,
@@ -130,7 +130,7 @@ describe("会话区 subagent prompt assembly E2E", () => {
         CUSTOM_AGENT_PROMPT_MARKER,
         "Reply only with the requested marker.",
       ],
-      agentPromptExcludes: ["You are an agent for ZCode CLI"],
+      agentPromptExcludes: ["You are an agent for zkali CLI"],
       childMarker: CUSTOM_CHILD_MARKER,
       childReplyToken: CUSTOM_CHILD_REPLY_TOKEN,
       finalToken: CUSTOM_FINAL_TOKEN,
@@ -146,7 +146,7 @@ describe("会话区 subagent prompt assembly E2E", () => {
         ISOLATED_CUSTOM_AGENT_PROMPT_MARKER,
         "Reply only with the requested marker.",
       ],
-      agentPromptExcludes: ["You are an agent for ZCode CLI"],
+      agentPromptExcludes: ["You are an agent for zkali CLI"],
       childMarker: ISOLATED_CUSTOM_CHILD_MARKER,
       childReplyToken: ISOLATED_CUSTOM_CHILD_REPLY_TOKEN,
       finalToken: ISOLATED_CUSTOM_FINAL_TOKEN,
@@ -166,7 +166,7 @@ describe("会话区 subagent prompt assembly E2E", () => {
       mcs: true,
       modelId,
       agentPromptIncludes: [
-        "You are an agent for ZCode CLI",
+        "You are an agent for zkali CLI",
         "the caller will relay this to the user",
       ],
       agentPromptExcludes: [CUSTOM_AGENT_PROMPT_MARKER],
@@ -346,7 +346,7 @@ function assertChildSystemPromptShape(
     { type: "ephemeral" },
     { type: "ephemeral" },
   ]);
-  expect(systems[0]).toBe("You are ZCode, an interactive agent");
+  expect(systems[0]).toBe("You are zkali, an interactive agent");
   for (const expected of input.agentPromptIncludes) {
     expect(systems[1]).toContain(expected);
   }

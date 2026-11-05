@@ -1381,7 +1381,7 @@ async function materializeCreatedSession<T>(
     if (params.importedHistory) {
       // 历史导入过去只写 legacy snapshot，taskId 不是真实 protocol sessionId，
       // setModel/sendPrompt 会打到不存在的 runtime。这里在创建期把历史写入 sessionStore 并 resume，
-      // 让导入结果从第一刻起就是可续聊、可切模型的 ZCode session。
+      // 让导入结果从第一刻起就是可续聊、可切模型的 zkali session。
       await persistImportedSessionHistory({
         context,
         record,

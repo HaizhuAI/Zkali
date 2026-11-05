@@ -192,7 +192,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       displayName_i18n: { "zh-CN": "浏览器操作" },
       icon: `${OFFICIAL_PLUGIN_ASSETS_BASE_URL}/browser-use/icon.png`,
       description_i18n: {
-        "zh-CN": "操作 ZCode 内置浏览器，检查网页并验证交互。",
+        "zh-CN": "操作 zkali 内置浏览器，检查网页并验证交互。",
       },
     },
     name: OFFICIAL_BROWSER_USE_PLUGIN_NAME,
@@ -295,7 +295,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       displayName_i18n: { "zh-CN": "恢复旧版会话" },
       icon: `${OFFICIAL_PLUGIN_ASSETS_BASE_URL}/restore-legacy-sessions/icon.png`,
       description_i18n: {
-        "zh-CN": "将旧版会话恢复为 ZCode 任务与会话记录。",
+        "zh-CN": "将旧版会话恢复为 zkali 任务与会话记录。",
       },
     },
     name: "restore-legacy-sessions",
@@ -318,7 +318,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       // 创建器使用客户端自带图标，不再借用 skill-creator 的远端图片。
       displayName_i18n: { "zh-CN": "插件创建器" },
       description_i18n: {
-        "zh-CN": "开发、校验 ZCode 插件，完成本地 dev 市场安装、试用与更新。",
+        "zh-CN": "开发、校验 zkali 插件，完成本地 dev 市场安装、试用与更新。",
       },
     },
     rootCandidates: [
@@ -346,7 +346,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       displayName: "Skill Creator",
       displayName_i18n: { "zh-CN": "技能创建器" },
       icon: `${OFFICIAL_PLUGIN_ASSETS_BASE_URL}/skill-creator/icon.png`,
-      description_i18n: { "zh-CN": "创建、编辑和验证可复用的 ZCode 技能。" },
+      description_i18n: { "zh-CN": "创建、编辑和验证可复用的 zkali 技能。" },
     },
     name: "skill-creator",
     rootCandidates: [
@@ -359,23 +359,23 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
   },
   {
     // 纯内容型插件（只有 commands + skills，无 MCP / 无系统依赖），默认启用，
-    // 让用户/agent 开箱即用地拿到 ZCode 配置指南、自诊断技能与 dynamic workflow 编写指南。
+    // 让用户/agent 开箱即用地拿到 zkali 配置指南、自诊断技能与 dynamic workflow 编写指南。
     defaultEnabled: true,
     listing: {
       author: ZAI_AUTHOR,
       category: "utilities",
-      displayName: "ZCode Guide",
-      displayName_i18n: { "zh-CN": "ZCode 使用指南" },
+      displayName: "zkali Guide",
+      displayName_i18n: { "zh-CN": "zkali 使用指南" },
       icon: `${OFFICIAL_PLUGIN_ASSETS_BASE_URL}/zcode-guide/icon.png`,
       description_i18n: {
-        "zh-CN": "提供 ZCode 配置指南与插件、技能、MCP、命令和钩子诊断。",
+        "zh-CN": "提供 zkali 配置指南与插件、技能、MCP、命令和钩子诊断。",
       },
       examplePrompts: [
-        "How do I configure MCP servers in ZCode?",
-        "Diagnose my current ZCode setup",
+        "How do I configure MCP servers in zkali?",
+        "Diagnose my current zkali setup",
       ],
       examplePrompts_i18n: {
-        "zh-CN": ["ZCode 里怎么配置 MCP 服务器？", "帮我诊断当前的 ZCode 配置"],
+        "zh-CN": ["zkali 里怎么配置 MCP 服务器？", "帮我诊断当前的 zkali 配置"],
       },
     },
     name: "zcode-guide",
@@ -387,6 +387,56 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       "../../../zcode-guide-plugin",
     ],
     version: "0.3.0",
+  },
+  {
+    // 定制发行版决策：zkali 面向安全作业的专用发行，团队/技能/命令/编排 Hook 与
+    // zkali-toolbox MCP（纯 Node 脚本，无 Helper 与系统依赖）必须开箱即用，
+    // 因此在本发行中标记 defaultEnabled。若该插件回流上游通用发行，需重新评估
+    // 「defaultEnabled 仅限内容型插件」约定。
+    defaultEnabled: true,
+    listing: {
+      author: { name: "zkali-team" },
+      category: "developer-tools",
+      displayName: "zkali",
+      displayName_i18n: { "zh-CN": "zkali 网安团队" },
+      description_i18n: {
+        "zh-CN":
+          "网安团队智能体：逆向/渗透/CTF/红蓝队 9 个专项子智能体自动协同，含 zkali-toolbox 安全工具箱。",
+      },
+      examplePrompts_i18n: {
+        "zh-CN": [
+          "/recon 对 target.htb 做攻击面测绘",
+          "/ctf 解这道 pwn 题并写 writeup",
+          "/reverse 分析这个 APK 的协议加密",
+        ],
+      },
+    },
+    name: "zkali",
+    requiredSeedPaths: [
+      ".zcode-plugin/plugin.json",
+      "agents/zkali-recon.md",
+      "agents/zkali-reverse.md",
+      "agents/zkali-pwn.md",
+      "agents/zkali-web.md",
+      "agents/zkali-ctf.md",
+      "agents/zkali-audit.md",
+      "agents/zkali-red.md",
+      "agents/zkali-blue.md",
+      "agents/zkali-proxy.md",
+      "skills/zkali-kernel/SKILL.md",
+      "commands/recon.md",
+      "hooks/hooks.json",
+      "scripts/session-init.mjs",
+      "scripts/cmd-journal.mjs",
+      "scripts/zkali-toolbox.mjs",
+    ],
+    rootCandidates: [
+      "packages/zkali-plugin",
+      "../zkali-plugin",
+      "../../zkali-plugin",
+      "../../../zkali-plugin",
+    ],
+    version: "1.0.0",
   },
   {
     // 产品决策：电脑控制回退为默认关闭，需用户在设置页显式开启。
@@ -429,7 +479,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
     version: "0.6.5",
   },
   {
-    // ZCode Sites（技术方案 4）：Skill 指导 Agent 把项目改造并打包成 runner 可直接运行的产物包，
+    // zkali Sites（技术方案 4）：Skill 指导 Agent 把项目改造并打包成 runner 可直接运行的产物包，
     // 再用 scripts/zcode-site.mjs（CLI）上传发布；commands/ 是 /site-* 斜杠命令。
     // 0.4.0 起自带 Sites 面板（UI plugin）：MCP server 与面板页面构建进 dist/，只给面板用，模型看不到
     // （docs/site/sites-panel.md）。默认开启，用户不必先去设置里打开就能让 Agent 部署站点。
@@ -439,8 +489,8 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
     listing: {
       author: ZAI_AUTHOR,
       category: "productivity",
-      displayName: "ZCode Sites",
-      displayName_i18n: { "zh-CN": "ZCode Sites" },
+      displayName: "zkali Sites",
+      displayName_i18n: { "zh-CN": "zkali Sites" },
       description_i18n: {
         "zh-CN": "把 Web 项目改造为可在云端 Linux 运行的部署包，一个 start.sh 即可启动。",
       },

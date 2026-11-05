@@ -1,5 +1,5 @@
 /**
- * MCP (Model Context Protocol) types for ZCode
+ * MCP (Model Context Protocol) types for zkali
  * Based on the original Tauri implementation
  */
 

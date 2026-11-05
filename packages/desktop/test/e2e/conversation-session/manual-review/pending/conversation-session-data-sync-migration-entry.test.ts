@@ -172,7 +172,7 @@ describe(`${CASE_MARKER}: 迁移入口移到数据同步页`, () => {
     const dialog = await readMigrationDialog();
     expect(dialog.step).toBe("session");
     expect(dialog.text).toContain("迁移向导");
-    expect(dialog.text).not.toContain("欢迎使用 ZCode");
+    expect(dialog.text).not.toContain("欢迎使用 zkali");
     expect(dialog.hasCancel).toBe(true);
     expect(dialog.buttons).toContain("取消");
     expect(dialog.buttons).not.toContain("上一步");

@@ -25,7 +25,7 @@ export interface ProjectManagementFailure {
   retry(): Promise<void>;
 }
 
-/** 确认对话框里「同时删除 ZCode 数据」的测量汇总；只含本机候选。 */
+/** 确认对话框里「同时删除 zkali 数据」的测量汇总；只含本机候选。 */
 export interface ProjectDataTotals {
   projects: number;
   sessions: number;

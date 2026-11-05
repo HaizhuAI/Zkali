@@ -34,7 +34,7 @@ const REQUEST_EXCLUDES = ["Generate a concise title", "CRITICAL: Respond with TE
 const markerPath = join(DEFAULT_WORKSPACE, MARKER_FILE);
 const commandName = `e2e-cch-${Date.now()}`;
 const commandFile = join(DEFAULT_WORKSPACE, ".zcode", "commands", `${commandName}.md`);
-const handOffNote = `[This shell step comes from the /${commandName} command file (project/zcode), not from ZCode.`;
+const handOffNote = `[This shell step comes from the /${commandName} command file (project/zcode), not from zkali.`;
 
 describe("CCH 自定义命令 `!` 块转交给模型", () => {
   before(async () => {

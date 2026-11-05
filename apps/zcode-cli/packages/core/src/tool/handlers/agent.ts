@@ -106,7 +106,7 @@ function buildAgentProviderDescription(
     "- The agent's final report is not shown to the user — relay what matters.",
     "- Use SendMessage with the agent's ID to continue a previously spawned agent with its context intact; a new Agent call starts fresh.",
     "- Each agent type's model, reasoning effort, and tools come from its definition (`.zcode/agents/*.md` frontmatter).",
-    // ZCode 默认前台运行；后台说明只写这一行，并要求不编造未到达的结果。
+    // zkali 默认前台运行；后台说明只写这一行，并要求不编造未到达的结果。
     "- `run_in_background: true` runs the agent asynchronously; you'll be notified when it completes. Never fabricate or predict a pending agent's results — the notification is never something you write yourself; if the user asks before it arrives, say it's still running.",
     // 只保留「用户点名工作流」这一种情形：工作流一律由用户显式请求触发，与系统提示词其余
     // 部分一致。不能把「结果层层喂给下一步的多代理编排」也划给 CreateWorkflow，
@@ -295,7 +295,7 @@ function canReadBackgroundOutputFile(toolNames: readonly string[] | undefined): 
 
 export const taskToolEntry: ToolEntry = {
   ...agentToolEntry,
-  capability: "Claude Code-compatible alias for launching a ZCode subagent",
+  capability: "Claude Code-compatible alias for launching a zkali subagent",
   metadata: {
     ...agentToolEntry.metadata,
     shouldDefer: true,
@@ -312,7 +312,7 @@ export const taskToolEntry: ToolEntry = {
 function createTaskToolEntryFromAgent(entry: ToolEntry): ToolEntry {
   return {
     ...entry,
-    capability: "Claude Code-compatible alias for launching a ZCode subagent",
+    capability: "Claude Code-compatible alias for launching a zkali subagent",
     metadata: {
       ...entry.metadata,
       shouldDefer: true,

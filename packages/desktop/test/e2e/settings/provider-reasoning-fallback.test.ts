@@ -124,7 +124,7 @@ describe("Todo95 未知型号仅添加档位", () => {
         reasoning: { effort: "high" },
         max_completion_tokens: 1,
         messages: [
-          { role: "system", content: "You are ZCode connectivity probe." },
+          { role: "system", content: "You are zkali connectivity probe." },
           { role: "user", content: "hi" },
         ],
       });

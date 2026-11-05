@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 import { READ_MAX_FILE_SIZE_BYTES } from "@zcode/contracts";
+import { UNIVERSAL_KERNEL_MD } from "@zcode/shared";
 import { createNodeContextSourceAdapter } from "../src/context/index.js";
 import {
   createNodeFileSystemAdapter,
@@ -870,7 +871,11 @@ describe("Node file and context adapters", () => {
       expect(snapshot.envInfo.shell).toBe("zsh");
       // 有 .git 就是仓库，与项目根同一个事实；原来按 git 进程判定，空 .git 被当成"不是仓库"。
       expect(snapshot.envInfo.isGitRepository).toBe(true);
-      expect(snapshot.userInstructions?.content).toBe("project instructions");
+      // zkali 定制发行：user-scope AGENTS.md 缺失时预置 universal-kernel，
+      // 合并顺序为内核在前、workspace 指令在后。
+      expect(snapshot.userInstructions?.content).toBe(
+        `${UNIVERSAL_KERNEL_MD}\n\nproject instructions`,
+      );
       expect(snapshot.projectContext).toMatchObject({
         type: "node",
         packageManager: "pnpm",

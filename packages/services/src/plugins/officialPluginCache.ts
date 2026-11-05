@@ -15,6 +15,8 @@ export const DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS: ReadonlySet<string> = new Set(
   "node-repl-host@zcode-plugins-official",
   "skill-creator@zcode-plugins-official",
   "zcode-guide@zcode-plugins-official",
+  // zkali 定制发行默认启用，与 definitions / @zcode/shared 同名集合保持一致。
+  "zkali@zcode-plugins-official",
 ]);
 
 export interface OfficialPluginCacheRoot {

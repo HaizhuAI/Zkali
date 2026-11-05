@@ -15,6 +15,7 @@ import {
 } from "../src/context/index.js";
 import { readToolEntry } from "../src/tool/handlers/read.js";
 import { createToolRegistry } from "../src/tool/registry.js";
+import { UNIVERSAL_KERNEL_MD } from "@zcode/shared";
 import type { ContextBuildResult, ContextMetaUserAttachmentSource } from "../src/context/types.js";
 
 const contextTestModel = createTestRuntimeModel({
@@ -73,7 +74,9 @@ function metaAttachment(
 function memoryFixture(
   name: "main-memory-default-index.md" | "main-memory-index.md" | "main-memory-semantic-recall.md",
 ): string {
-  const content = readFileSync(new URL(`./fixtures/memory/${name}`, import.meta.url), "utf8");
+  const content = readFileSync(new URL(`./fixtures/memory/${name}`, import.meta.url), "utf8")
+    // git blob 为 LF；Windows autocrlf 检出为 CRLF，上游模板源按 LF 产出——断言两侧统一到 LF。
+    .replace(/\r\n/g, "\n");
   return content.endsWith("\n") ? content.slice(0, -1) : content;
 }
 
@@ -101,14 +104,17 @@ describe("ContextBuilder meta user context", () => {
       false,
       false,
     ]);
-    expect(result.systemMessages[0]?.content).toBe("You are ZCode, an interactive agent");
+    expect(result.systemMessages[0]?.content).toBe("You are zkali, an interactive agent");
 
     const stableBody = String(result.systemMessages[1]?.content ?? "");
     expect(stableBody).toMatch(/^\n?You are an agent working with the user toward their goals/);
     expect(stableBody).not.toContain("# Agent Identity");
-    expect(stableBody).not.toContain("You are ZCode, an interactive agent");
+    expect(stableBody).not.toContain("You are zkali, an interactive agent");
     expect(stableBody).toContain("# Harness");
-    const harnessBullets = stableBody.split("# Harness\n")[1]?.split("\n") ?? [];
+    // zkali 预置内核段接在 identity 之后，取 Harness 后首个非子弹行之前的行计数。
+    const harnessTail = stableBody.split("# Harness\n")[1]?.split("\n") ?? [];
+    const firstNonBullet = harnessTail.findIndex((line) => !line.startsWith(" - "));
+    const harnessBullets = firstNonBullet === -1 ? harnessTail : harnessTail.slice(0, firstNonBullet);
     expect(harnessBullets).toHaveLength(5);
     expect(harnessBullets.every((line) => line.startsWith(" - "))).toBe(true);
     expect(stableBody).not.toContain(EXPECTED_PRONOUNS_PROMPT);
@@ -186,7 +192,7 @@ describe("ContextBuilder meta user context", () => {
     }
   });
 
-  it("injects the stable ZCode Desktop Context before dynamic behavior", () => {
+  it("injects the stable zkali Desktop Context before dynamic behavior", () => {
     const result = createContextBuilder({
       workingDirectory: "/workspace",
       presentationSurface: "zcode_desktop",
@@ -204,14 +210,14 @@ describe("ContextBuilder meta user context", () => {
     );
     expect(desktopSections).toHaveLength(1);
     expect(desktopSections[0]).toMatchObject({
-      name: "ZCode Desktop Context",
+      name: "zkali Desktop Context",
       source: "desktop_context",
       injectionTarget: "system",
       cacheHint: "stable",
     });
     expect(desktopSections[0]?.content).toBe(
       [
-        "# ZCode Desktop Context",
+        "# zkali Desktop Context",
         "",
         "### Interactive views",
         "- No visualization output directory is supplied; inline Gen UI is unavailable.",
@@ -243,8 +249,8 @@ describe("ContextBuilder meta user context", () => {
     expect(desktopIndex).toBeLessThan(dynamicBehaviorIndex);
 
     expect(result.systemMessages).toHaveLength(3);
-    expect(result.systemMessages[1]?.content).toContain("# ZCode Desktop Context");
-    expect(result.systemMessages[2]?.content).not.toContain("# ZCode Desktop Context");
+    expect(result.systemMessages[1]?.content).toContain("# zkali Desktop Context");
+    expect(result.systemMessages[2]?.content).not.toContain("# zkali Desktop Context");
   });
 
   it("does not inject the Desktop context for the default terminal surface", () => {
@@ -278,7 +284,7 @@ describe("ContextBuilder meta user context", () => {
       cliPrefixPrompt: "legacy override",
     } as any).build();
 
-    expect(result.systemMessages[0]?.content).toBe("You are ZCode, an interactive agent");
+    expect(result.systemMessages[0]?.content).toBe("You are zkali, an interactive agent");
   });
 
   it("covers default body safety, runtime, and tool-guidance semantic anchors", () => {
@@ -401,7 +407,7 @@ describe("ContextBuilder meta user context", () => {
     expect(result.metaUserAttachments.map((attachment) => attachment.source)).toEqual([
       "context_prefix",
     ]);
-    expect(result.systemMessages[0]?.content).toBe("You are ZCode, an interactive agent");
+    expect(result.systemMessages[0]?.content).toBe("You are zkali, an interactive agent");
     expect(result.systemMessages[1]?.content).toBe("\nYou are concise for this task.");
     expect(result.sections.some((section) => section.source === "env_info")).toBe(true);
     const meta = metaAttachment(result, "context_prefix");
@@ -416,10 +422,14 @@ describe("ContextBuilder meta user context", () => {
     expect(meta).not.toContain("- Package manager: pnpm");
     expect(meta).not.toContain("- `test`: vitest");
     expect(metaAttachment(result, "date")).toMatch(/^Today's date is /);
+    // zkali 预置内核常驻 stable body，自带「# Memory Engineering Routing」标题；
+    // 本断言意图是 Memory 功能段不外泄，剔除内核正文后再扫描。
     const providerText = [
       ...result.systemMessages.map((message) => message.content),
       ...result.metaUserAttachments.map((attachment) => attachment.content),
-    ].join("\n");
+    ]
+      .join("\n")
+      .replace(UNIVERSAL_KERNEL_MD.trimEnd(), "");
     expect(providerText).not.toContain("# Session Guidance");
     expect(providerText).not.toContain("# Session-specific guidance");
     expect(providerText).not.toContain("## Memory");
@@ -463,7 +473,11 @@ describe("ContextBuilder meta user context", () => {
       guidanceToolNames: ["AskUserQuestion", "Agent", "Skill", "TodoWrite", "Read", "Edit", "Bash"],
     }).build();
 
-    const stable = String(result.systemMessages[1]?.content ?? "");
+    // 同上：剔除常驻内核正文，检查 Memory 功能段不外泄。
+    const stable = String(result.systemMessages[1]?.content ?? "").replace(
+      UNIVERSAL_KERNEL_MD.trimEnd(),
+      "",
+    );
     const dynamic = String(result.systemMessages[2]?.content ?? "");
     expect(stable).not.toContain("# Session-specific guidance");
     expect(stable).not.toContain("# Memory");
@@ -831,10 +845,10 @@ describe("ContextBuilder meta user context", () => {
     const stableBody = result.systemMessages[1]?.content ?? "";
     const dynamicSystem = result.systemMessages[2]?.content ?? "";
     const meta = metaAttachment(result, "context_prefix");
-    expect(cliPrefix).toBe("You are ZCode, an interactive agent");
+    expect(cliPrefix).toBe("You are zkali, an interactive agent");
     expect(stableBody).not.toContain("# Agent Identity");
     expect(stableBody).toMatch(/^\n?You are an agent working with the user toward their goals/);
-    expect(stableBody).not.toContain("You are ZCode, an interactive agent");
+    expect(stableBody).not.toContain("You are zkali, an interactive agent");
     expect(stableBody).toContain("# Harness");
     expect(stableBody).not.toContain("# Session-specific guidance");
     expect(stableBody).not.toContain("# Environment");
@@ -869,9 +883,10 @@ describe("ContextBuilder meta user context", () => {
       injectionTarget: section.injectionTarget,
       cacheHint: section.cacheHint,
     }));
-    expect(sectionTargets.slice(0, 4)).toEqual([
+    expect(sectionTargets.slice(0, 5)).toEqual([
       { name: "CLI Prefix", injectionTarget: "system", cacheHint: "stable" },
       { name: "Agent Identity", injectionTarget: "system", cacheHint: "stable" },
+      { name: "Universal Kernel", injectionTarget: "system", cacheHint: "stable" },
       { name: "Dynamic Behavior", injectionTarget: "system", cacheHint: "dynamic" },
       { name: "Context Management", injectionTarget: "system", cacheHint: "dynamic" },
     ]);
@@ -1056,7 +1071,7 @@ describe("ContextBuilder meta user context", () => {
       "system",
     ]);
     expect(result.metaUserAttachments).toEqual([]);
-    expect(result.systemMessages[0]?.content).toBe("You are ZCode, an interactive agent");
+    expect(result.systemMessages[0]?.content).toBe("You are zkali, an interactive agent");
     expect(result.systemMessages[1]?.content).not.toContain("# Agent Identity");
     expect(result.systemMessages[1]?.content).toMatch(
       /^\n?You are an agent working with the user toward their goals/,
@@ -1333,7 +1348,7 @@ describe("ContextBuilder meta user context", () => {
         "",
         "Recent commits:\ned2cac59d Merge branch 'feat/trajectory' of https://example.com/team/project into feat/trajectory\n07957b58c chore: update doc",
         "",
-        "ZCode attached this context automatically; it isn't part of the user's message. It describes the user's own account and workspace, so they don't need it reported back.",
+        "zkali attached this context automatically; it isn't part of the user's message. It describes the user's own account and workspace, so they don't need it reported back.",
       ].join("\n"),
     );
     expect(
@@ -1382,12 +1397,12 @@ describe("ContextBuilder meta user context", () => {
     const prefixSection = buildCliPrefixSection();
     const identitySection = buildIdentitySection();
 
-    expect(prefixSection.content).toBe("You are ZCode, an interactive agent");
+    expect(prefixSection.content).toBe("You are zkali, an interactive agent");
     expect(identitySection.content).toMatch(
       /^\n?You are an agent working with the user toward their goals/,
     );
     expect(identitySection.content).not.toContain("# Agent Identity");
-    expect(identitySection.content).not.toContain("You are ZCode, an interactive agent");
+    expect(identitySection.content).not.toContain("You are zkali, an interactive agent");
     expect(`${prefixSection.content}\n${identitySection.content}`).not.toContain("${");
     expect(`${prefixSection.content}\n${identitySection.content}`).not.toContain("an AI assistant");
   });
@@ -1602,7 +1617,7 @@ describe("context builder — workflow actor identity", () => {
     ).toBe(true);
     expect(result.sections.map((section) => section.source)).not.toContain("cli_prefix");
     expect(result.systemMessages.map((m) => String(m.content)).join("\n")).not.toContain(
-      "You are ZCode, an interactive agent",
+      "You are zkali, an interactive agent",
     );
   });
 

@@ -13,9 +13,9 @@ const HISTORY_BODY = "E2E_READONLY_NOTICE_HISTORY_BODY";
 const NOTICE = '[data-testid="v4-workspace-readonly-notice"]';
 const COPY = {
   "zh-CN":
-    "工作区目录不存在或无法访问，当前仅可查看历史记录。恢复该目录后重启 ZCode 即可继续使用。",
+    "工作区目录不存在或无法访问，当前仅可查看历史记录。恢复该目录后重启 zkali 即可继续使用。",
   "en-US":
-    "The workspace directory does not exist or cannot be accessed. You can only view history for now. Restore the directory and restart ZCode to continue.",
+    "The workspace directory does not exist or cannot be accessed. You can only view history for now. Restore the directory and restart zkali to continue.",
 };
 type TestWindow = Window & {
   __testActions?: { setLocale(locale: string): void; setTheme(theme: string): void };

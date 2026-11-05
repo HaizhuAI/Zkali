@@ -38,6 +38,13 @@ import {
 } from "@/lib/taskNotificationPreferences.js";
 import type { Theme } from "../useTheme.js";
 import { applyTheme, normalizeThemePreference, resolveTheme } from "../useTheme.js";
+import {
+  applyWallpaperSettings,
+  loadWallpaperSettings,
+  normalizeWallpaperSettings,
+  WALLPAPER_SETTINGS_STORAGE_KEY,
+  type WallpaperSettings,
+} from "@/zkali-wallpaper/wallpaperSettings.js";
 
 import {
   INTERFACE_MODE_STORAGE_KEY,
@@ -161,6 +168,10 @@ export interface ZCodeState {
   notificationSoundEnabled: boolean;
   setNotificationSoundEnabled: (enabled: boolean) => void;
 
+  /** zkali 壁纸偏好（启用/选图/模糊/scrim），跨窗口同步。 */
+  wallpaperSettings: WallpaperSettings;
+  setWallpaperSettings: (patch: Partial<WallpaperSettings>) => void;
+
   /** 当前用户信息 */
   user: UserInfo | null;
   /** 用户由未登录进入登录态时递增；连接额外 provider 不会误判为重新登录。 */
@@ -248,6 +259,7 @@ const BROADCAST_FIELDS = new Set([
   "interfaceMode",
   "notificationEnabled",
   "hideProjectDeviceNames",
+  "wallpaperSettings",
 ]);
 
 type BroadcastField =
@@ -258,7 +270,8 @@ type BroadcastField =
   | "hideProjectDeviceNames"
   // 任务通知开关跨窗口同步：角标是应用级表面，A 窗口关通知而 B 窗口仍上报未读时，
   // 主进程 max 聚合会让任务栏/托盘继续亮，设置与提醒状态错位。
-  | "notificationEnabled";
+  | "notificationEnabled"
+  | "wallpaperSettings";
 
 /** 广播频道名前缀 */
 const STATE_CHANNEL_PREFIX = "state:";
@@ -378,6 +391,15 @@ export function createZCodeStore(
       persistTaskNotificationSoundEnabled(enabled);
       set({ notificationSoundEnabled: enabled });
     },
+
+    wallpaperSettings: loadWallpaperSettings(readSafeLocalStorage),
+    setWallpaperSettings: (patch: Partial<WallpaperSettings>) =>
+      set((state) => {
+        const next = normalizeWallpaperSettings({ ...state.wallpaperSettings, ...patch });
+        writeSafeLocalStorage(WALLPAPER_SETTINGS_STORAGE_KEY, JSON.stringify(next));
+        applyWallpaperSettings(next);
+        return { wallpaperSettings: next };
+      }),
 
     user: null,
     authSessionSeq: 0,
@@ -554,6 +576,8 @@ export function createZCodeStore(
         state.setNotificationEnabled(msg.payload);
       } else if (field === "hideProjectDeviceNames" && typeof msg.payload === "boolean") {
         state.setHideProjectDeviceNames(msg.payload);
+      } else if (field === "wallpaperSettings" && typeof msg.payload === "object") {
+        state.setWallpaperSettings(normalizeWallpaperSettings(msg.payload));
       }
     } finally {
       applyingBroadcast = false;
@@ -563,6 +587,7 @@ export function createZCodeStore(
   syncSystemThemeListener(useStore.getState().theme);
   applyTheme(useStore.getState().theme);
   applyUiFontSizePx(useStore.getState().uiFontSizePx);
+  applyWallpaperSettings(useStore.getState().wallpaperSettings);
   document.documentElement.classList.toggle(
     "dark",
     resolveTheme(useStore.getState().theme) === "dark",

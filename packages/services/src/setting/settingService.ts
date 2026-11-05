@@ -11,6 +11,7 @@ import {
   appSettingsSchema,
   formatLogPrefix,
   formatZodError,
+  UNIVERSAL_KERNEL_MD,
   USER_INSTRUCTIONS_MAX_BYTES,
   USER_INSTRUCTIONS_TOO_LARGE_ERROR_CODE,
 } from "@zcode/shared";
@@ -412,6 +413,11 @@ export function createSettingServiceWithMigrations(): {
       await userInstructionsWriteQueue;
       try {
         const content = await readFile(userInstructionsFile, "utf8");
+        // zkali 定制发行：文件存在但全空白同样视为未配置，展示预置内核；
+        // 与 CLI resolveUserInstructions 的兜底语义保持一致（非空内容用户优先）。
+        if (content.trim().length === 0) {
+          return { content: UNIVERSAL_KERNEL_MD, filePath: userInstructionsFile };
+        }
         return { content, filePath: userInstructionsFile };
       } catch (error) {
         if (
@@ -420,8 +426,9 @@ export function createSettingServiceWithMigrations(): {
           "code" in error &&
           (error as { code?: string }).code === "ENOENT"
         ) {
-          // 文件不存在等价于未配置个性化指令，不算错误。
-          return { content: "", filePath: userInstructionsFile };
+          // zkali 定制发行：文件不存在时返回预置内核，编辑器基线即发行默认指令；
+          // 用户编辑保存后落盘成文件，之后读取走文件内容。
+          return { content: UNIVERSAL_KERNEL_MD, filePath: userInstructionsFile };
         }
         throw error;
       }

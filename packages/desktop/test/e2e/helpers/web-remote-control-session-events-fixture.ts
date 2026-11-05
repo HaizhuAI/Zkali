@@ -9,8 +9,8 @@ export const WEB_REMOTE_CONTROL_FIXTURE_CREDENTIALS = {
   "oauth:zai:access_token": "mock-token",
   "oauth:zai:user_info": JSON.stringify({
     id: "zcode-e2e-user",
-    username: "ZCode E2E",
-    displayName: "ZCode E2E",
+    username: "zkali E2E",
+    displayName: "zkali E2E",
   }),
   zcodejwttoken: "mock-token",
 };

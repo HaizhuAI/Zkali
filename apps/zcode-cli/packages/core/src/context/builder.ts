@@ -13,7 +13,7 @@ import type {
 import type { ToolRegistry } from "../tool/registry.js";
 import { estimateTokens } from "./utils.js";
 import { buildCliPrefixSection } from "./sections/cli-prefix.js";
-import { buildIdentitySection } from "./sections/identity.js";
+import { buildIdentitySection, buildUniversalKernelSection } from "./sections/identity.js";
 import { buildWorkflowActorIdentitySection } from "./sections/workflow-actor.js";
 import { buildEnvironmentSections, buildGitSystemContextSection } from "./sections/env-info.js";
 import { buildSkillsSection } from "./sections/skills.js";
@@ -120,6 +120,9 @@ export class ContextBuilder {
       sections.push(buildWorkflowActorIdentitySection(workflowActor, midConversationSystem));
     } else {
       sections.push(buildIdentitySection(activeOutputStyle, midConversationSystem));
+      // zkali 定制发行：预置 universal-kernel 进系统提示词。只在默认身份路径注入，
+      // 自定义 system prompt 与工作流子代理不叠加（前者用户全控，后者是脚本执行体）。
+      sections.push(buildUniversalKernelSection());
     }
 
     // 环境与模型是运行时公告（meta_user），不进 system；使用自定义 prompt 时也照常发送。
@@ -272,7 +275,7 @@ export class ContextBuilder {
     if (dynamicSystemContent) {
       messages.push({
         role: "system",
-        // ZCode by design：Main Agent 的 dynamic system block 自带左边界，所有 provider 保持一致。
+        // zkali by design：Main Agent 的 dynamic system block 自带左边界，所有 provider 保持一致。
         content: `\n\n${dynamicSystemContent}`,
         cacheControl: EPHEMERAL_CACHE_CONTROL,
       });

@@ -191,7 +191,7 @@ describe("desktop e2e process cleanup", () => {
     const processes = [
       { command: "node wdio.conf.ts", pid: 9, ppid: 1 },
       { command: "chromedriver --port=55089", pid: 10, ppid: 9 },
-      { command: "ZCode E2E", pid: 11, ppid: 10 },
+      { command: "zkali E2E", pid: 11, ppid: 10 },
       {
         command: `Electron Helper (Renderer) --user-data-dir=/repo/.e2e-cache/run-a/chromium-profiles/0-51 --config=${currentHome}/.zcode/config.json`,
         pid: 12,
@@ -203,7 +203,7 @@ describe("desktop e2e process cleanup", () => {
         pid: 22,
         ppid: 21,
       },
-      { command: "ZCode E2E", pid: 21, ppid: 20 },
+      { command: "zkali E2E", pid: 21, ppid: 20 },
     ];
 
     expect(
@@ -220,7 +220,7 @@ describe("desktop e2e process cleanup", () => {
     const processes = [
       { command: "node wdio.conf.ts", pid: 9, ppid: 1 },
       { command: "chromedriver --port=55089", pid: 10, ppid: 9 },
-      { command: "ZCode E2E", pid: 11, ppid: 10 },
+      { command: "zkali E2E", pid: 11, ppid: 10 },
       {
         command: `Electron Helper (Renderer) --config=${currentHome}/.zcode/config.json`,
         pid: 12,
@@ -244,7 +244,7 @@ describe("desktop e2e process cleanup", () => {
     const processes = [
       { command: "node wdio.conf.ts", pid: 9, ppid: 1 },
       { command: "chromedriver --port=55089", pid: 10, ppid: 9 },
-      { command: "ZCode E2E", pid: 11, ppid: 10 },
+      { command: "zkali E2E", pid: 11, ppid: 10 },
       {
         command: `Electron Helper --type=gpu-process --user-data-dir=${chromiumProfileRootDir}/0-2`,
         pid: 12,
@@ -258,7 +258,7 @@ describe("desktop e2e process cleanup", () => {
         ppid: 1,
       },
       { command: "chromedriver --port=55090", pid: 20, ppid: 9 },
-      { command: "ZCode E2E", pid: 21, ppid: 20 },
+      { command: "zkali E2E", pid: 21, ppid: 20 },
       {
         command:
           "Electron Helper --user-data-dir=/repo/.e2e-cache/run-a-other/chromium-profiles/0-2",
@@ -325,7 +325,7 @@ describe("desktop e2e process cleanup", () => {
       { command: "zsh", pid: 6, ppid: 5 },
       { command: "node old-wdio-worker.js", pid: 7, ppid: 6 },
       { command: "chromedriver --port=55089", pid: 10, ppid: 7 },
-      { command: "ZCode E2E", pid: 11, ppid: 10 },
+      { command: "zkali E2E", pid: 11, ppid: 10 },
       {
         command:
           "Electron Helper --user-data-dir=/repo/.e2e-cache/run-a/chromium-profiles/0-51 --config=/tmp/zcode-e2e-run-a/.zcode/config.json",
@@ -364,7 +364,7 @@ describe("desktop e2e process cleanup", () => {
   it("lists and scopes a read-only system process snapshot by explicit roots", async () => {
     const runCommand = vi.fn(async () =>
       [
-        "10 1 ZCode E2E",
+        "10 1 zkali E2E",
         "11 10 zcode-host-local-1",
         "12 11 zcode-cli",
         "13 12 zcode-browser-use-mcp",
@@ -378,7 +378,7 @@ describe("desktop e2e process cleanup", () => {
     });
 
     expect(collectProcessTreeByRootPids(processes, [10])).toEqual([
-      { command: "ZCode E2E", pid: 10, ppid: 1 },
+      { command: "zkali E2E", pid: 10, ppid: 1 },
       { command: "zcode-host-local-1", pid: 11, ppid: 10 },
       { command: "zcode-cli", pid: 12, ppid: 11 },
       { command: "zcode-browser-use-mcp", pid: 13, ppid: 12 },
@@ -416,7 +416,7 @@ describe("desktop e2e process cleanup", () => {
     const sharedMainDir = "/repo/packages/desktop/out/main";
     const processes = [
       {
-        command: `Electron "ZCode E2E" --app=${sharedEntryPoint} --inspect=${sharedMainDir}`,
+        command: `Electron "zkali E2E" --app=${sharedEntryPoint} --inspect=${sharedMainDir}`,
         pid: 10,
         ppid: 1,
       },
@@ -458,17 +458,17 @@ describe("desktop e2e process cleanup", () => {
     const sharedApp = "C:\\repo\\packages\\desktop\\out\\main\\index.js";
     const output = toProcessJson([
       {
-        command: `electron.exe --app=${sharedApp} --name="ZCode E2E" ${CURRENT_HOME_MARKER}`,
+        command: `electron.exe --app=${sharedApp} --name="zkali E2E" ${CURRENT_HOME_MARKER}`,
         parentPid: 1,
         pid: 201,
       },
       {
-        command: `electron.exe --app=${sharedApp} --name="ZCode E2E" ${createWindowsE2EHomeMarkerArg("C:\\e2e\\shards\\other")}`,
+        command: `electron.exe --app=${sharedApp} --name="zkali E2E" ${createWindowsE2EHomeMarkerArg("C:\\e2e\\shards\\other")}`,
         parentPid: 1,
         pid: 202,
       },
       {
-        command: `electron.exe --app=${sharedApp} --name="ZCode E2E" ${createWindowsE2EHomeMarkerArg(`${CURRENT_HOME}-copy`)}`,
+        command: `electron.exe --app=${sharedApp} --name="zkali E2E" ${createWindowsE2EHomeMarkerArg(`${CURRENT_HOME}-copy`)}`,
         parentPid: 1,
         pid: 203,
       },

@@ -104,7 +104,7 @@ describe(`${MARKER}: 远端 Core 启动失败时连接错误带出原因`, () =>
     // 配置根不可写，连接必须失败；失败信息除了原有首句，还要带出 Core 报告的原因。
     expect(connectError).toBeDefined();
     expect(rawError ?? "").toMatch(
-      /Timed out waiting for Server ready|ZCode Server daemon exited before ready/,
+      /Timed out waiting for Server ready|zkali Server daemon exited before ready/,
     );
     expect(rawError ?? "").toContain("last exit: core exited code=1");
     expect(rawError ?? "").toMatch(/EACCES|permission denied/i);

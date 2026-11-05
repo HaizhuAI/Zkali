@@ -2923,7 +2923,7 @@ export type ZCodeProviderRuntimeHeadersResponse = z.infer<
 //
 // `consumer` 缺省为 `mcp-server`（旧版 agent 不带该字段），此时必须带 `mcpKey`；
 // `plugin-command` 是官方插件命令进程经 agent 代理端点发起的请求，没有 MCP，不带 `mcpKey`，
-// host 按「套餐可选」解析：没有套餐时只给 ZCode 登录身份（技术方案 5.8）。
+// host 按「套餐可选」解析：没有套餐时只给 zkali 登录身份（技术方案 5.8）。
 export const zcodeOfficialMcpAuthHeadersRequestParamsSchema = z
   .object({
     requestId: nonEmptyString,
@@ -2959,7 +2959,7 @@ export type ZCodeOfficialMcpAuthHeadersRequestParams = z.infer<
  * 失败原因必须可枚举，避免调用方按文本分流；因此响应不含 errorMessage。
  *
  * `official_mcp_origin_untrusted` 是 host 侧二次校验的拒绝原因：`targetOrigin` 不等于当前
- * ZCode API origin。判定只看 origin，`pluginId` / `mcpKey` 仅用于日志归属。与"未登录/无凭据"
+ * zkali API origin。判定只看 origin，`pluginId` / `mcpKey` 仅用于日志归属。与"未登录/无凭据"
  * 分开，才能在排查时区分"被拒绝"和"没身份"。
  */
 export const zcodeOfficialMcpAuthFailureReasonSchema = z.enum(

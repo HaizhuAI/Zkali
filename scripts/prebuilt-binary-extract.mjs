@@ -55,9 +55,13 @@ export function extractPrebuiltArchive({ archivePath, archiveExt, extractDir, cw
   }
 
   const tarCwd = cwd ?? process.cwd();
+  // Bugfix: 归档路径落到跨目录 ../ 回退分支时仍带盘符冒号（如 D:/…），GNU tar 会把
+  // -f 参数解析成远程主机名导致解压失败。win32 下统一加 --force-local 强制按本地
+  // 文件处理（bsdtar 兼容同名选项，Linux/macOS 路径不变）。
+  const tarArgs = process.platform === "win32" ? ["--force-local", "-xzf"] : ["-xzf"];
   runCommand(
     "tar",
-    ["-xzf", resolveTarArchiveArg(archivePath, tarCwd), "-C", toTarPosixPath(extractDir)],
+    [...tarArgs, resolveTarArchiveArg(archivePath, tarCwd), "-C", toTarPosixPath(extractDir)],
     { cwd: tarCwd },
   );
 }

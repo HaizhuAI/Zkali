@@ -19,7 +19,7 @@ async function fixture(name = "latest-mac.yml") {
   roots.push(outputDir);
   const file = join(outputDir, name);
   const manifest =
-    "version: 3.15.1\nfiles:\n  - url: ZCode.zip\n    sha512: checksum\nreleaseNotes: release notes\n";
+    "version: 3.15.1\nfiles:\n  - url: zkali.zip\n    sha512: checksum\nreleaseNotes: release notes\n";
   await writeFile(file, manifest);
   return { outputDir, file, manifest };
 }

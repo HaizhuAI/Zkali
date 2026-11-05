@@ -1,5 +1,5 @@
 /*
- * ZCode 官方 Server MCP 的凭证解析与身份头构造。
+ * zkali 官方 Server MCP 的凭证解析与身份头构造。
  *
  * 本文件与 Off-Peak 的 offPeakRuntimeModel.ts **逻辑等价但完全独立**：
  * 不复用其函数、不修改其行为。理由是两者的套餐门槛、Team 支持范围与凭证通道预期会独立演进，
@@ -95,7 +95,7 @@ let lastCredentialResolvedLogKey: string | undefined;
 export interface OfficialMcpCredentialResolveOptions {
   /**
    * 套餐可选（插件命令进程，技术方案 5.8）：选中连接没有有效套餐时不返回 plan_required，
-   * 只给 ZCode 登录身份，由服务端按免费档处理。登录态不完整（缺 MaaS JWT、跨 family）
+   * 只给 zkali 登录身份，由服务端按免费档处理。登录态不完整（缺 MaaS JWT、跨 family）
    * 仍按 unavailable 返回，绝不把付费用户降成免费。
    */
   planOptional?: boolean;

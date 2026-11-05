@@ -2419,3 +2419,18 @@ html[data-document-hidden] *::after {
 [data-scrollbar-active][data-scrollbar-dragging] {
   --zcode-scrollbar-thumb: color-mix(in oklab, var(--color-foreground) 45%, transparent);
 }
+
+/* ============================================================================
+ * zkali 壁纸模式：画布级 bg-background 穿透，露出 RootShell 壁纸层。
+ * 只作用于工具类，不改 --color-background 变量本身——终端（--color-terminal-bg）、
+ * bg-popover / bg-card / 半透明变体（bg-background/72）保持原色与可读性。
+ * ==========================================================================*/
+html.zkali-wallpaper .bg-background {
+  background-color: transparent;
+}
+
+/* 壁纸态下带 bg-background 的可滚动区背景穿透，滚动条轨道不受影响 */
+html.zkali-wallpaper body,
+html.zkali-wallpaper #root {
+  background: transparent !important;
+}

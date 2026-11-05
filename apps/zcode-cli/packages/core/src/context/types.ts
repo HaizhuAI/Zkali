@@ -46,7 +46,8 @@ export type ContextSource =
   | "dynamic_behavior" // 动态行为边界
   | "session_guidance" // 当前可用内置能力指导
   | "context_management" // 长上下文管理提示
-  | "desktop_context"; // ZCode Desktop 渲染与交互协议
+  | "desktop_context" // zkali Desktop 渲染与交互协议
+  | "zkali_universal_kernel"; // zkali 定制发行预置的 universal-kernel 作业内核
 
 export type ContextInjectionTarget = "system" | "meta_user";
 

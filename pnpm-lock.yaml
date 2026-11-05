@@ -913,6 +913,8 @@ importers:
         specifier: 4.6.5
         version: 4.6.5
 
+  apps/zcode-cli/packages/zkali-plugin: {}
+
   apps/zcode-cli/tools/prompt-trajectory:
     devDependencies:
       '@types/node':

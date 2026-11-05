@@ -22,9 +22,16 @@ import type {
   UserInstructionsOptions,
 } from "@zcode/contracts";
 import { findGitRoot, resolveGitSnapshot, resolveIsGitRepository } from "./git-snapshot.js";
+import {
+  UNIVERSAL_KERNEL_BYTES,
+  UNIVERSAL_KERNEL_MD,
+  USER_INSTRUCTIONS_MAX_BYTES,
+} from "@zcode/shared";
 
 const DEFAULT_PRIORITY_FILES = ["AGENTS.md"];
-const DEFAULT_MAX_BYTES = 100 * 1024;
+// 与 packages/shared/src/userInstructions.ts 共用同一常量，不再两处手同步；
+// zkali 内核预置要求上限覆盖 277KB 全文。
+const DEFAULT_MAX_BYTES = USER_INSTRUCTIONS_MAX_BYTES;
 
 export interface NodeContextSourceAdapterOptions {
   env?: NodeJS.ProcessEnv;
@@ -150,6 +157,25 @@ async function resolveUserInstructions(
     if (source) {
       sources.push(source);
     }
+  }
+
+  // zkali 定制发行：默认 AGENTS.md 管线启用时（priorityFiles 含 AGENTS.md），
+  // ~/.zcode/AGENTS.md 缺失或内容为空白即“未配置”，注入预置 universal-kernel
+  // 作为 user-scope 指令源；文件有非空内容一律用户优先（写入任意非空内容
+  // 即可停用预置内核）。自定义 priorityFiles 显式脱离默认管线时不注入。
+  const hasUserContent = sources.some(
+    (source) => source.scope === "user" && source.content.trim().length > 0,
+  );
+  if (priorityFiles.includes("AGENTS.md") && !hasUserContent) {
+    sources.unshift({
+      scope: "user",
+      filePath: join(resolveUserHomeDir(env), ".zcode", "AGENTS.md"),
+      fileName: "AGENTS.md",
+      content: UNIVERSAL_KERNEL_MD,
+      bytesRead: UNIVERSAL_KERNEL_BYTES,
+      sizeBytes: UNIVERSAL_KERNEL_BYTES,
+      truncated: false,
+    });
   }
 
   if (sources.length === 0) return undefined;

@@ -255,8 +255,8 @@ describe(`${CASE_MARKER}: 设备卡停止远端服务`, () => {
     expect(confirmText).toMatch(
       /此设备当前没有运行中的任务|设备未提供任务清单|No tasks are running|didn't provide a task list/u,
     );
-    expect(confirmText).toMatch(/其他电脑上的 ZCode|ZCode on another computer/u);
-    expect(confirmText).toMatch(/下次打开 ZCode 时会重新启动远端服务|next time you open ZCode/u);
+    expect(confirmText).toMatch(/其他电脑上的 zkali|zkali on another computer/u);
+    expect(confirmText).toMatch(/下次打开 zkali 时会重新启动远端服务|next time you open zkali/u);
     facts.confirmText = confirmText;
     const focused = await browser.execute(() => document.activeElement?.textContent ?? "");
     expect(["取消", "Cancel"].some((label) => focused.includes(label))).toBe(true);

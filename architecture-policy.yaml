@@ -1511,3 +1511,24 @@ exceptions:
     paths:
       - packages/zcode-cua/src/**
     reason: The whole zcode-cua producer package (broker, native adapters, tools) entered the repo after the gate timestamp as pre-existing code moved from a separate repository; adopting its internal layers needs a dedicated CONTRACT pass (it has known internal cycles by design), not a mechanical split in this branch.
+  - id: zkali-universal-kernel-embedded-asset
+    rule: unmanaged-new-file
+    paths: [packages/shared/src/zkali/universalKernel.ts]
+    reason: zkali 定制发行嵌入的生成资产（universal-kernel 内核全文，JSON 字符串字面量模块）；它是数据不是模块边界，经 packages/shared/src/index.ts 公开导出，由 shared legacy 模块统一兜底，不单独登记 managed 模块。
+  - id: zkali-rebrand-preexisting-unmanaged-files
+    rule: unmanaged-new-file
+    paths:
+      - apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/mcp-elicitation.ts
+      - apps/zcode-cli/packages/cli/src/tui-prompt-handler-runtime.ts
+      - packages/desktop/src/main/armsEventRedaction.ts
+      - packages/desktop/src/main/processResourceSystemWindowAggregator.ts
+      - packages/desktop/src/main/windowsCuaOperationIndicatorContent.ts
+      - packages/services/src/feedback/feedbackLogArchive.ts
+      - packages/services/src/file/workspaceFileIgnore.ts
+      - packages/shared/src/telemetryRedaction.ts
+      - packages/ui/src/components/marketing-touch/MarketingTouchProvider.tsx
+      - packages/ui/src/components/workflow-timeline/WorkflowSavePopover.tsx
+      - packages/ui/src/components/workflow-timeline/workflowRunSave.ts
+      - packages/ui/src/store/workflowRunSavedStore.ts
+      - packages/ui/src/v4/officeSuggestedPrompts.ts
+    reason: 这些文件是 gate 时间戳之后进入仓库的存量上游新增（legacy 模块内），仅因 zkali 发行版 ZCode→zkali 品牌改名的机械字符串替换被纳入 --changed 闭包而首次命中检查；改名本身未引入新文件语义，逐一 adopt 不在本次发行范围，沿用 zcode-cua 先例登记例外。

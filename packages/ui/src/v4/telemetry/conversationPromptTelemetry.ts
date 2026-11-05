@@ -25,7 +25,7 @@ export function resolveLegacyConversationModelValue(params: {
 
 export { resolveLegacyRuntimeModelValue } from "@zcode/shared/conversation-telemetry";
 
-/** V4 config.provider 是实际模型 provider id；agentProvider 表示 ZCode 运行时。 */
+/** V4 config.provider 是实际模型 provider id；agentProvider 表示 zkali 运行时。 */
 export function buildV4ConversationPromptTelemetryExtraDetail(params: {
   uiMode?: TelemetryUiMode;
   agentProvider?: ZCodeProvider;
@@ -51,7 +51,7 @@ export function buildV4ConversationPromptTelemetryExtraDetail(params: {
     model_provider: legacyTelemetryProviderId(
       params.configProvider?.trim() || base.model_provider || "",
     ),
-    // agent 表示 ZCode 运行时，不能用模型 provider id 替代。
+    // agent 表示 zkali 运行时，不能用模型 provider id 替代。
     agent: agentProvider,
   };
 }

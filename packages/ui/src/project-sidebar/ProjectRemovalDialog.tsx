@@ -32,7 +32,7 @@ type DataState = ProjectDataTotals | "measuring" | null | undefined;
 
 /**
  * 确认时的行集合由调用方冻结；对话框只展示按设备拆分的后果。
- * 本机候选可勾选「同时删除 ZCode 数据」：每次打开默认不勾选，勾选后改写标题、说明与按钮，并要求输入确认词。
+ * 本机候选可勾选「同时删除 zkali 数据」：每次打开默认不勾选，勾选后改写标题、说明与按钮，并要求输入确认词。
  */
 export function ProjectRemovalDialog({
   rows,

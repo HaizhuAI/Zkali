@@ -276,6 +276,25 @@ const officialPluginPackages = [
     requiresRuntime: false,
     stagedPath: "packages/zcode-cua-plugin",
   },
+  {
+    // zkali 定制发行：网安团队插件默认启用，MCP 为纯 Node 脚本（scripts/zkali-toolbox.mjs），
+    // 无编译 runtime。漏 stage 会让生产桌面包首启 seed 不到该插件。
+    packageName: "@zcode/zkali-plugin",
+    relativePath: "apps/zcode-cli/packages/zkali-plugin",
+    requiresRuntime: false,
+    requiredSeedPaths: [
+      ".zcode-plugin/plugin.json",
+      "agents/zkali-recon.md",
+      "agents/zkali-proxy.md",
+      "skills/zkali-kernel/SKILL.md",
+      "commands/recon.md",
+      "hooks/hooks.json",
+      "scripts/session-init.mjs",
+      "scripts/cmd-journal.mjs",
+      "scripts/zkali-toolbox.mjs",
+    ],
+    stagedPath: "packages/zkali-plugin",
+  },
   // superpowers 已从内置插件下线，改走 UI 推荐区按需安装；这里不再 stage 它的资源。
 ];
 // 随 CLI 内置的技能包（不是插件）：bootstrap 的 resolveBundledSkillRoots 沿官方插件同款候选目录

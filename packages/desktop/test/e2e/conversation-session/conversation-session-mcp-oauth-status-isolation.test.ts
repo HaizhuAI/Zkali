@@ -326,7 +326,7 @@ async function writeMcpFixtures(mcpUrl: string, plainHttpMcpUrl: string): Promis
     PLUGIN_MANIFEST_FILE,
     `${JSON.stringify(
       {
-        author: { name: "ZCode E2E" },
+        author: { name: "zkali E2E" },
         description: "E2E fixture plugin with an OAuth-protected MCP server.",
         license: "MIT",
         mcpServers: {
@@ -334,7 +334,7 @@ async function writeMcpFixtures(mcpUrl: string, plainHttpMcpUrl: string): Promis
             // 此夹具只实现 legacy；显式声明以排除 dual-era 探测握手对 OAuth 连接计数的干扰。
             protocolVersion: "legacy",
             oauth: {
-              clientName: "ZCode MCP OAuth E2E",
+              clientName: "zkali MCP OAuth E2E",
               scope: "mcp:tools",
               type: "authorization_code",
             },

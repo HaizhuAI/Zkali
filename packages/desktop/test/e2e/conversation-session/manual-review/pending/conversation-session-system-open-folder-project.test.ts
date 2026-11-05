@@ -17,7 +17,7 @@ import {
 async function openFolder(path: string) {
   // 使用 Explorer 的 argv 入口，保留真实 Main → preload → Root → Host 项目保存链路。
   await browser.electron.execute((electron, folder) => {
-    electron.app.emit("second-instance", {}, ["ZCode.exe", "--open-workspace", folder], "", {});
+    electron.app.emit("second-instance", {}, ["zkali.exe", "--open-workspace", folder], "", {});
   }, path);
 }
 async function draft() {

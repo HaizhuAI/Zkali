@@ -147,7 +147,15 @@ const ensureExtractedNode = async ({ archivePath, extractRoot, nodeVersion, targ
   });
 
   try {
-    run("tar", ["-xf", archivePath, "-C", extractRoot]);
+    // Bugfix: Windows GNU tar（Git Bash）会把 -f 参数里的盘符冒号（D:/…）当成远程
+    // 主机名导致解压失败，-C 的反斜杠路径还会被当转义序列吃掉。win32 下加
+    // --force-local 并把两个路径统一转正斜杠（bsdtar 兼容同名选项，POSIX 路径不变）。
+    const toTarPath = (value) => value.replaceAll("\\", "/");
+    const tarArgs =
+      process.platform === "win32"
+        ? ["--force-local", "-xf", toTarPath(archivePath), "-C", toTarPath(extractRoot)]
+        : ["-xf", archivePath, "-C", extractRoot];
+    run("tar", tarArgs);
   } catch (error) {
     throw new Error(
       `Could not extract ${archivePath}. Install tar/xz support or pass --node-binary ${target}=/abs/path/node.`,

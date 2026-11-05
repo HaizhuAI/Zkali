@@ -140,7 +140,7 @@ describe("SID01–SID05: 会话 ID 创建、历史引用和完整重启恢复", 
         {
           includes: [
             `E2E_SID_REFERENCE_${index}`,
-            "The user referenced prior ZCode session(s)",
+            "The user referenced prior zkali session(s)",
             id,
           ],
           excludes: ["Generate a concise title"],
@@ -220,7 +220,7 @@ describe("SID01–SID05: 会话 ID 创建、历史引用和完整重启恢复", 
           .waitFor({ timeout: 60000 });
         await waitForUpstreamRequest(
           {
-            includes: [`E2E_SID_MOBILE_${index}`, "The user referenced prior ZCode session(s)", id],
+            includes: [`E2E_SID_MOBILE_${index}`, "The user referenced prior zkali session(s)", id],
             excludes: ["Generate a concise title"],
           },
           "手机未透传原 ID 的引用提醒",

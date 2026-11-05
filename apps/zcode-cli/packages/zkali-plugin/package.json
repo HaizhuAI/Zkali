@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@zcode/zkali-plugin",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "zkali 网安团队智能体：内置逆向/渗透/CTF/红蓝队子智能体、领域技能、斜杠命令、SessionStart 自动编排与 zkali-toolbox MCP。"
+}

@@ -264,7 +264,7 @@ function isPersistedAssistantCancellation(error: AssistantErrorInfo): boolean {
   }
 
   // 旧 transcript 的 AiSdkModelAdapterError 没有持久化 model error code，
-  // 只能用 ZCode 自身生成的标准 name/message 二元组兼容恢复；不泛化匹配 provider 文案。
+  // 只能用 zkali 自身生成的标准 name/message 二元组兼容恢复；不泛化匹配 provider 文案。
   return (
     code === undefined &&
     error.name === "AiSdkModelAdapterError" &&

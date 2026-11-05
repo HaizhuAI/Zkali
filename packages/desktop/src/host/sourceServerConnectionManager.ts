@@ -103,7 +103,7 @@ export class SourceServerUpgradeRequiredError extends Error {
         ? `Source Server ${currentVersion} release archive differs from the current development build and must be updated`
         : upgradeTarget === "server"
           ? `Source Server ${currentVersion} must be upgraded to at least ${minimumVersion}`
-          : `ZCode Desktop ${currentVersion} must be upgraded to at least ${minimumVersion}`,
+          : `zkali Desktop ${currentVersion} must be upgraded to at least ${minimumVersion}`,
     );
     this.name = "SourceServerUpgradeRequiredError";
   }

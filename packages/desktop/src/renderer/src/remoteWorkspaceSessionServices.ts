@@ -89,7 +89,7 @@ export function buildServerRemoteWorkspaceSessionServices(
   baseServices: IServiceAccessor,
   remoteServices: IServiceAccessor,
 ): IServiceAccessor {
-  // Server remote 连接的是完整运行中的 ZCode server；workspace/runtime/model-provider
+  // Server remote 连接的是完整运行中的 zkali server；workspace/runtime/model-provider
   // 等状态以 server 为准，本地 renderer 只保留窗口与 UI shell 状态。
   return withLocalOnlyAccountServices(baseServices, remoteServices);
 }

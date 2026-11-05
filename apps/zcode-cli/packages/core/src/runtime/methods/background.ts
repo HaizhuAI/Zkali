@@ -182,7 +182,7 @@ async function stopLocalAgentBackgroundTask(
   if (!this.subagentPort?.stopTask) {
     return unsupportedBackgroundStopResult(target);
   }
-  // 停止者随停止请求传给 subagent：killed 通知据此写 "by ZCode" / "by user" / 不写。
+  // 停止者随停止请求传给 subagent：killed 通知据此写 "by zkali" / "by user" / 不写。
   const snapshot = await this.subagentPort.stopTask(target.taskId, { initiator });
   if (!snapshot) {
     return {

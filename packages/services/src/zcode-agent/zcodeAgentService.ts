@@ -533,7 +533,7 @@ export function supportsLegacyRemoteTaskAllowlist(workspaceIdentity: string | un
 }
 
 function isClosedStdioTransportError(error: unknown): boolean {
-  return error instanceof Error && error.message === "ZCode agent stdio transport is closed";
+  return error instanceof Error && error.message === "zkali agent stdio transport is closed";
 }
 
 interface SessionEventSequenceState {
@@ -1030,7 +1030,7 @@ function createRuntimeUnavailableError(params: ZCodeAgentWorkspaceTarget): Error
   code: typeof ZCODE_AGENT_RUNTIME_UNAVAILABLE_CODE;
   workspaceKey: string;
 } {
-  const error = new Error("ZCode Agent runtime is not running.") as Error & {
+  const error = new Error("zkali Agent runtime is not running.") as Error & {
     code: typeof ZCODE_AGENT_RUNTIME_UNAVAILABLE_CODE;
     workspaceKey: string;
   };
@@ -1180,7 +1180,7 @@ interface CreateZCodeAgentServiceBaseOptions extends Omit<
    */
   officialMcpAuthHeadersResolver?: {
     resolveHeaders(request: {
-      /** plugin-command 按「套餐可选」解析：没有套餐时只返回 ZCode 登录身份。 */
+      /** plugin-command 按「套餐可选」解析：没有套餐时只返回 zkali 登录身份。 */
       consumer: OfficialAuthConsumerKind;
       mcpKey: string;
       pluginId: string;
@@ -1691,7 +1691,7 @@ export function createZCodeAgentService(
         headersApplied: true,
         requestAuth,
       });
-      logger.info(undefined, "ZCode provider runtime headers 已应用", {
+      logger.info(undefined, "zkali provider runtime headers 已应用", {
         modelId: params.pending.request.modelSelection.modelId,
         providerId: params.pending.request.providerId,
         requestId: params.pending.request.requestId,
@@ -1700,7 +1700,7 @@ export function createZCodeAgentService(
       });
     } catch (error) {
       if (pendingProviderRuntimeHeaders.get(params.key) !== params.pending) return;
-      logger.warn(undefined, "ZCode provider runtime headers 应用失败", {
+      logger.warn(undefined, "zkali provider runtime headers 应用失败", {
         modelId: params.pending.request.modelSelection.modelId,
         providerId: params.pending.request.providerId,
         requestId: params.pending.request.requestId,
@@ -1785,7 +1785,7 @@ export function createZCodeAgentService(
       const cause = error instanceof Error ? error.cause : undefined;
       const loggedError =
         cause === undefined ? errorMessage : describeVerificationConfigError(cause);
-      logger.warn(undefined, "ZCode provider runtime headers 应用失败", {
+      logger.warn(undefined, "zkali provider runtime headers 应用失败", {
         modelId: pending.request.modelSelection.modelId,
         providerId: pending.request.providerId,
         requestId: pending.request.requestId,
@@ -1908,7 +1908,7 @@ export function createZCodeAgentService(
             throw new Error("Account Config 接收回执版本与交付版本不一致");
           }
           accountConfigReceivedRevisionByClient.set(params.client, result.receivedRevision);
-          logger.info(undefined, "account provider config 已交付到 ZCode agent", {
+          logger.info(undefined, "account provider config 已交付到 zkali agent", {
             providerCount: result.providerCount,
             reason: params.reason,
             receivedRevision: result.receivedRevision,
@@ -2040,7 +2040,7 @@ export function createZCodeAgentService(
             workspace,
             refreshRegistry: true,
           });
-          logger.info(undefined, "provider/model 就绪后已启动等待中的 ZCode agent", {
+          logger.info(undefined, "provider/model 就绪后已启动等待中的 zkali agent", {
             providerCount: event.snapshot.providerCount,
             reason: event.reason,
             revision: event.snapshot.revision,
@@ -2496,7 +2496,7 @@ export function createZCodeAgentService(
           if (parsed.success) {
             processResourceSampleEmitter.fire({ ...parsed.data, lane });
           } else {
-            logger.debug(undefined, "丢弃无效 ZCode CLI 资源样本", {
+            logger.debug(undefined, "丢弃无效 zkali CLI 资源样本", {
               issues: parsed.error.issues.map((issue) => ({
                 code: issue.code,
                 path: issue.path.join("."),
@@ -2523,7 +2523,7 @@ export function createZCodeAgentService(
           if (parsed.success) {
             mcpTelemetryEmitter.fire(parsed.data);
           } else {
-            logger.debug(undefined, "丢弃无效 ZCode CLI MCP 遥测事件", {
+            logger.debug(undefined, "丢弃无效 zkali CLI MCP 遥测事件", {
               issues: parsed.error.issues.map((issue) => ({
                 code: issue.code,
                 path: issue.path.join("."),
@@ -3027,7 +3027,7 @@ export function createZCodeAgentService(
             request: parsed.data,
           };
           pendingProviderRuntimeHeaders.set(pendingKey, pending);
-          logger.info(request.trace?.traceId, "收到 ZCode provider runtime headers 请求", {
+          logger.info(request.trace?.traceId, "收到 zkali provider runtime headers 请求", {
             modelId: parsed.data.modelSelection.modelId,
             providerId: parsed.data.providerId,
             requestId: parsed.data.requestId,
@@ -3041,7 +3041,7 @@ export function createZCodeAgentService(
           // 记录，不能再补发第二个响应。
           void routeProviderRuntimeHeadersRequest(pendingKey, pending, workspace).catch(
             (error: unknown) => {
-              logger.warn(undefined, "ZCode provider runtime headers 响应发送失败", {
+              logger.warn(undefined, "zkali provider runtime headers 响应发送失败", {
                 modelId: parsed.data.modelSelection.modelId,
                 providerId: parsed.data.providerId,
                 requestId: parsed.data.requestId,
@@ -3898,7 +3898,7 @@ export function createZCodeAgentService(
     } finally {
       delete entry.interactionPreferencesReady;
     }
-    logger.info(undefined, "为只读会话控制面启动 ZCode agent", {
+    logger.info(undefined, "为只读会话控制面启动 zkali agent", {
       workspaceKey,
       workspacePath: params.workspacePath,
     });
@@ -3957,8 +3957,8 @@ export function createZCodeAgentService(
         logger.info(
           undefined,
           active
-            ? "provider/model 尚未就绪，ZCode agent 保持只读"
-            : "provider/model 尚未就绪，ZCode agent 保持未启动",
+            ? "provider/model 尚未就绪，zkali agent 保持只读"
+            : "provider/model 尚未就绪，zkali agent 保持未启动",
           {
             providerCount: readinessSnapshot?.providerCount ?? 0,
             revision: readinessSnapshot?.revision ?? null,
@@ -3978,7 +3978,7 @@ export function createZCodeAgentService(
     processManager.markReady(params, entry.client);
     entry.workspace = params;
     waitingWorkspaceStartups.delete(workspaceKey);
-    logger.info(undefined, "provider/model 就绪，允许 ZCode agent 模型执行", {
+    logger.info(undefined, "provider/model 就绪，允许 zkali agent 模型执行", {
       modelId: readiness.modelId,
       providerId: readiness.providerId,
       revision: readinessSnapshot.revision,
@@ -4365,13 +4365,13 @@ export function createZCodeAgentService(
     async initialize(params: ZCodeAgentWorkspaceTarget): Promise<ZCodeAgentInitializeResult> {
       const workspaceKey = resolveWorkspaceKey(params);
       const startedAt = Date.now();
-      logger.info(undefined, "开始初始化 ZCode agent", {
+      logger.info(undefined, "开始初始化 zkali agent", {
         workspaceKey,
         workspacePath: params.workspacePath,
       });
       try {
         const client = await getClient(params);
-        logger.info(undefined, "ZCode agent 初始化完成", {
+        logger.info(undefined, "zkali agent 初始化完成", {
           durationMs: Date.now() - startedAt,
           transportKind: client.transportKind === "websocket" ? "websocket" : "stdio",
           workspaceKey,
@@ -4388,7 +4388,7 @@ export function createZCodeAgentService(
         const providerNotReady = isProviderNotReadyError(error);
         logger[providerNotReady ? "info" : "warn"](
           undefined,
-          providerNotReady ? "ZCode agent 等待 provider/model 就绪" : "ZCode agent 初始化失败",
+          providerNotReady ? "zkali agent 等待 provider/model 就绪" : "zkali agent 初始化失败",
           {
             durationMs: Date.now() - startedAt,
             message: error instanceof Error ? error.message : String(error),
@@ -5787,7 +5787,7 @@ export function createZCodeAgentService(
 
     async generateWorkspaceText(params: ZCodeAgentGenerateWorkspaceTextParams) {
       const client = await getClient(params);
-      // Worker 自己读取 ZCode Built-in / Personal Config；Host 只在执行前确保账号状态形成的
+      // Worker 自己读取 zkali Built-in / Personal Config；Host 只在执行前确保账号状态形成的
       // Account Config Overlay 已同步，避免新进程先按旧套餐状态创建 Model。
       await ensureAccountProviderConfigSynced({
         client,
@@ -5886,7 +5886,7 @@ export function createZCodeAgentService(
         ...params,
         ...(browserAmbientContext ? { browserAmbientContext } : {}),
       };
-      logger.info(logTraceId, "ZCode Agent session/send 开始", {
+      logger.info(logTraceId, "zkali Agent session/send 开始", {
         attachmentCount: params.attachments?.length ?? 0,
         hasBrowserAmbientContext: browserAmbientContext !== undefined,
         inputId: params.inputId,
@@ -5903,7 +5903,7 @@ export function createZCodeAgentService(
           buildSessionSendParams(protocolParams),
           zcodeSessionSendResultSchema,
         );
-        logger.info(logTraceId, "ZCode Agent session/send ACK", {
+        logger.info(logTraceId, "zkali Agent session/send ACK", {
           durationMs: Date.now() - startedAt,
           inputId: params.inputId,
           queryId: params.queryId ?? null,
@@ -5916,7 +5916,7 @@ export function createZCodeAgentService(
       } catch (error) {
         const compatFields = getSessionSendCompatFields(error);
         if (compatFields.length > 0) {
-          logger.warn(logTraceId, "ZCode Agent session/send 命中新旧协议兼容重试", {
+          logger.warn(logTraceId, "zkali Agent session/send 命中新旧协议兼容重试", {
             compatFields,
             durationMs: Date.now() - startedAt,
             sessionId: params.sessionId,
@@ -5930,7 +5930,7 @@ export function createZCodeAgentService(
           );
           return result;
         }
-        logger.warn(logTraceId, "ZCode Agent session/send 失败", {
+        logger.warn(logTraceId, "zkali Agent session/send 失败", {
           durationMs: Date.now() - startedAt,
           error: error instanceof Error ? error.message : String(error),
           inputId: params.inputId,
@@ -6135,7 +6135,7 @@ export function createZCodeAgentService(
           module: "services.zcode_agent",
           requestId: params.requestId,
         });
-        throw new Error(`ZCode session runtime preferences request not found: ${params.requestId}`);
+        throw new Error(`zkali session runtime preferences request not found: ${params.requestId}`);
       }
       const responseContext = {
         event: "zcode_agent.runtime_preferences.host_response_received",
@@ -6213,14 +6213,14 @@ export function createZCodeAgentService(
       const key = providerRuntimeHeadersRequestKey(params);
       const pending = pendingProviderRuntimeHeaders.get(key);
       if (!pending) {
-        throw new Error(`ZCode provider runtime headers request not found: ${params.requestId}`);
+        throw new Error(`zkali provider runtime headers request not found: ${params.requestId}`);
       }
       if (!pending.interactionRequired) {
         throw new Error("Provider runtime headers request does not require interaction");
       }
       if (pending.responding) {
         throw new Error(
-          `ZCode provider runtime headers response already pending: ${params.requestId}`,
+          `zkali provider runtime headers response already pending: ${params.requestId}`,
         );
       }
       // 不能在等待账号 IO 前删除 pending，否则新合入的取消通知找不到请求；
@@ -6240,7 +6240,7 @@ export function createZCodeAgentService(
       } catch (error) {
         if (pendingProviderRuntimeHeaders.get(key) !== pending) return;
         pendingProviderRuntimeHeaders.delete(key);
-        logger.warn(undefined, "ZCode provider runtime headers 应用失败", {
+        logger.warn(undefined, "zkali provider runtime headers 应用失败", {
           modelId: pending.request.modelSelection.modelId,
           providerId: pending.request.providerId,
           requestId: pending.request.requestId,
@@ -6289,9 +6289,9 @@ export function createZCodeAgentService(
         workspaceKey: resolveWorkspaceKey(pending.request.workspace),
       };
       if (requestAuth) {
-        logger.info(undefined, "ZCode provider runtime headers 已应用", logContext);
+        logger.info(undefined, "zkali provider runtime headers 已应用", logContext);
       } else {
-        logger.warn(undefined, "ZCode provider runtime headers 应用失败", logContext);
+        logger.warn(undefined, "zkali provider runtime headers 应用失败", logContext);
       }
     },
 
@@ -6555,7 +6555,7 @@ export function createZCodeAgentService(
           : undefined;
       // conversation 冷订阅会在 CLI 内部直接恢复历史 Session 并立即发布首帧。
       // 若 Account Config 尚未到达，首帧会先按缺少 Account Overlay 的 Registry 解析；这里只建立
-      // Account Config 顺序屏障，不提升模型执行权限。ZCode Built-in / Personal 仍由 Worker 维护。
+      // Account Config 顺序屏障，不提升模型执行权限。zkali Built-in / Personal 仍由 Worker 维护。
       const providerRegistryStartedAt = performance.now();
       await ensureAccountProviderConfigSynced({
         client,
