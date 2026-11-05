@@ -27,3 +27,13 @@ export const ZKALI_WALLPAPERS: readonly ZkaliWallpaper[] = [
 export function findWallpaper(id: string): ZkaliWallpaper | undefined {
   return ZKALI_WALLPAPERS.find((wallpaper) => wallpaper.id === id);
 }
+
+/**
+ * Dream Skin 式「一张图一种心情」：沉浸式界面主题与配对壁纸的联动表。
+ * 在主题选择器里选中主题时同时启用对应壁纸；用户之后仍可在壁纸区自改。
+ */
+export const THEME_WALLPAPER_PAIRS: Readonly<Record<string, string>> = {
+  "zkali-dream": "neon-horizon",
+  "zkali-cyber": "signal-rain",
+  "zkali-nightops": "hex-mesh",
+};

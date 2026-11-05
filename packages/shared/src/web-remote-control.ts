@@ -28,7 +28,15 @@ import type { WebRemoteControlActionPayload } from "#src/web-remote-relay/index.
 export const WEB_REMOTE_CONTROL_WORKSPACE_RECONNECT_TIMEOUT_MS = 120_000;
 export const WEB_REMOTE_CONTROL_OUTBOUND_PAYLOAD_BUFFER_TIMEOUT_MS = 5_000;
 
-export type WebRemoteControlThemeSeed = "light" | "dark" | "zai-light" | "zai-dark" | "system";
+export type WebRemoteControlThemeSeed =
+  | "light"
+  | "dark"
+  | "zai-light"
+  | "zai-dark"
+  | "zkali-dream"
+  | "zkali-cyber"
+  | "zkali-nightops"
+  | "system";
 
 export interface WebRemoteControlContext {
   workspacePath: string;
@@ -137,6 +145,9 @@ export function isWebRemoteControlThemeSeed(value: unknown): value is WebRemoteC
     value === "dark" ||
     value === "zai-light" ||
     value === "zai-dark" ||
+    value === "zkali-dream" ||
+    value === "zkali-cyber" ||
+    value === "zkali-nightops" ||
     value === "system"
   );
 }

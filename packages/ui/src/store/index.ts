@@ -77,6 +77,7 @@ export interface LoginEntryAttempt {
 const CODE_PREVIEW_SETTINGS_KEY = "zcode-code-preview-settings";
 const PERFORMANCE_MODE_STORAGE_KEY = "zcode-performance-mode";
 const HIDE_PROJECT_DEVICE_NAMES_STORAGE_KEY = "zcode-hide-project-device-names";
+const ZKALI_AUTO_CLAIM_STORAGE_KEY = "zkali-auto-claim";
 export const FILE_MANAGER_NAVIGATION_PREFERENCES_STORAGE_KEY =
   "zcode-file-manager-navigation-preferences";
 
@@ -172,6 +173,10 @@ export interface ZCodeState {
   wallpaperSettings: WallpaperSettings;
   setWallpaperSettings: (patch: Partial<WallpaperSettings>) => void;
 
+  /** zkali 自动领取活动投放（claim_zcode_plan）；默认开启，跨窗口同步。 */
+  zkaliAutoClaim: boolean;
+  setZkaliAutoClaim: (enabled: boolean) => void;
+
   /** 当前用户信息 */
   user: UserInfo | null;
   /** 用户由未登录进入登录态时递增；连接额外 provider 不会误判为重新登录。 */
@@ -260,6 +265,7 @@ const BROADCAST_FIELDS = new Set([
   "notificationEnabled",
   "hideProjectDeviceNames",
   "wallpaperSettings",
+  "zkaliAutoClaim",
 ]);
 
 type BroadcastField =
@@ -271,7 +277,8 @@ type BroadcastField =
   // 任务通知开关跨窗口同步：角标是应用级表面，A 窗口关通知而 B 窗口仍上报未读时，
   // 主进程 max 聚合会让任务栏/托盘继续亮，设置与提醒状态错位。
   | "notificationEnabled"
-  | "wallpaperSettings";
+  | "wallpaperSettings"
+  | "zkaliAutoClaim";
 
 /** 广播频道名前缀 */
 const STATE_CHANNEL_PREFIX = "state:";
@@ -400,6 +407,12 @@ export function createZCodeStore(
         applyWallpaperSettings(next);
         return { wallpaperSettings: next };
       }),
+
+    zkaliAutoClaim: readSafeLocalStorage(ZKALI_AUTO_CLAIM_STORAGE_KEY) !== "false",
+    setZkaliAutoClaim: (enabled: boolean) => {
+      writeSafeLocalStorage(ZKALI_AUTO_CLAIM_STORAGE_KEY, String(enabled));
+      set({ zkaliAutoClaim: enabled });
+    },
 
     user: null,
     authSessionSeq: 0,
@@ -578,6 +591,8 @@ export function createZCodeStore(
         state.setHideProjectDeviceNames(msg.payload);
       } else if (field === "wallpaperSettings" && typeof msg.payload === "object") {
         state.setWallpaperSettings(normalizeWallpaperSettings(msg.payload));
+      } else if (field === "zkaliAutoClaim" && typeof msg.payload === "boolean") {
+        state.setZkaliAutoClaim(msg.payload);
       }
     } finally {
       applyingBroadcast = false;

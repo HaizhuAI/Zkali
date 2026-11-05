@@ -316,7 +316,7 @@ export function createMarketingTouchController(options: {
         store.getState().dialog
       )
         return;
-      await run(candidate, action);
+      return run(candidate, action);
     },
     async closeBanner() {
       const candidate = store.getState().banner;

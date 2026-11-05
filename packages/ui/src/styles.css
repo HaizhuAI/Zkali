@@ -846,6 +846,276 @@ html[data-document-hidden] *::after {
   --color-plugin-paid-plan-badge-foreground: #ffd8b8;
 }
 
+/* ============================================================================
+ * zkali 沉浸式主题（Dream Skin 风格适配）：主题色氛围 + 配对壁纸 + 半透明玻璃面板。
+ * 基座层给不透明色，保证无壁纸时也完整可读；`html.zkali-wallpaper` 下的覆盖层
+ * 把大面板换成半透明色并加 backdrop 模糊，让壁纸从侧栏/卡片后透出。
+ * ==========================================================================*/
+
+/* 梦境极光：深紫底 + 极光紫青强调 */
+.theme-zkali-dream {
+  --color-background: #0d0718;
+  --color-background-win-alt: #1a1030;
+  --color-background-alt: color-mix(in oklab, #1a1030 60%, transparent);
+  --color-brand: #a78bfa;
+  --color-resize-handle: #a78bfa;
+  --color-trajectory-user: #7dd3fc;
+  --color-trajectory-assistant: #c4b5fd;
+  --color-trajectory-reasoning: #f0abfc;
+  --color-trajectory-tool-call: #67e8f9;
+  --color-trajectory-tool-result: #a5b4fc;
+  --color-accent: #2e1065;
+  --color-find-highlight: #4c1d95;
+  --color-find-highlight-active: #a78bfa;
+  --color-border: rgba(196, 181, 253, 0.14);
+  --color-border-hover: rgba(196, 181, 253, 0.28);
+  --color-hover: rgba(167, 139, 250, 0.08);
+  --color-selected: rgba(167, 139, 250, 0.16);
+  --color-header: #150d2b;
+  --color-panel: #150d2b;
+  --color-sidebar: #100a22;
+  --color-surface: rgba(196, 181, 253, 0.07);
+  --color-user-message-bubble: rgba(139, 92, 246, 0.18);
+  --color-surface-hover: rgba(196, 181, 253, 0.12);
+  --color-card: #1c1338;
+  --color-popover: #1c1338;
+  --color-popover-header: #150d2b;
+  --color-input: #1c1338;
+  --color-input-focused: #0d0718;
+  --color-input-border-focused: #a78bfa;
+  --color-terminal-bg: #0d0718;
+  --color-terminal-fg: #e6defa;
+  --color-terminal-cursor: #c4b5fd;
+  --color-terminal-cursor-accent: #0d0718;
+  --color-terminal-selection: rgba(167, 139, 250, 0.35);
+  --color-terminal-black: #1c1338;
+  --color-terminal-red: #fb7185;
+  --color-terminal-green: #4ade80;
+  --color-terminal-yellow: #fbbf24;
+  --color-terminal-blue: #818cf8;
+  --color-terminal-magenta: #e879f9;
+  --color-terminal-cyan: #67e8f9;
+  --color-tab: #150d2b;
+  --color-tab-active: #0d0718;
+  --color-menu: #1c1338;
+  --color-menu-hover: #2a1b52;
+  --color-primary: #c4b5fd;
+  --color-primary-foreground: #14072e;
+  --color-secondary: #2a1b52;
+  --color-interaction-ask-surface: rgba(139, 92, 246, 0.22);
+  --color-interaction-ask-foreground: #c4b5fd;
+  --color-foreground: #ddd3f5;
+  --color-foreground-subtle: color-mix(in oklab, #ddd3f5 60%, transparent);
+  --color-foreground-subtlest: color-mix(in oklab, #ddd3f5 30%, transparent);
+  --color-idle-task: #a78bfa;
+  --color-idle-task-surface: #241046;
+  --color-git-modified: #f0abfc;
+  --color-git-added: #4ade80;
+  --color-git-deleted: #fb7185;
+  --color-git-renamed: #818cf8;
+  --color-git-untracked: #4ade80;
+  --color-git-descendant: #f0abfc;
+  --color-toast: #1c1338;
+  --color-tooltip: #1c1338;
+  --color-tooltip-tag: #2a1b52;
+  --color-tag: #2a1b52;
+  --color-usage-chart-1: #a78bfa;
+  --color-usage-chart-2: #4ade80;
+  --color-usage-chart-3: #e879f9;
+  --color-usage-chart-4: #fb7185;
+  --color-usage-chart-5: #fbbf24;
+  --color-usage-chart-6: #67e8f9;
+  --color-remote-docker-surface: rgba(167, 139, 250, 0.16);
+  --color-remote-docker-foreground: #c4b5fd;
+  --color-remote-docker-border: rgba(167, 139, 250, 0.42);
+}
+
+/* 赛博终端：近黑底 + 矩阵绿强调 */
+.theme-zkali-cyber {
+  --color-background: #020a06;
+  --color-background-win-alt: #061510;
+  --color-background-alt: color-mix(in oklab, #061510 60%, transparent);
+  --color-brand: #4ade80;
+  --color-resize-handle: #4ade80;
+  --color-trajectory-user: #4ade80;
+  --color-trajectory-assistant: #a3e635;
+  --color-trajectory-reasoning: #34d399;
+  --color-trajectory-tool-call: #facc15;
+  --color-trajectory-tool-result: #22d3ee;
+  --color-accent: #052e16;
+  --color-find-highlight: #14532d;
+  --color-find-highlight-active: #4ade80;
+  --color-border: rgba(74, 222, 128, 0.16);
+  --color-border-hover: rgba(74, 222, 128, 0.32);
+  --color-hover: rgba(74, 222, 128, 0.07);
+  --color-selected: rgba(74, 222, 128, 0.15);
+  --color-header: #04120c;
+  --color-panel: #04120c;
+  --color-sidebar: #030f0a;
+  --color-surface: rgba(74, 222, 128, 0.06);
+  --color-user-message-bubble: rgba(74, 222, 128, 0.12);
+  --color-surface-hover: rgba(74, 222, 128, 0.11);
+  --color-card: #071a11;
+  --color-popover: #071a11;
+  --color-popover-header: #04120c;
+  --color-input: #071a11;
+  --color-input-focused: #020a06;
+  --color-input-border-focused: #4ade80;
+  --color-terminal-bg: #020a06;
+  --color-terminal-fg: #d1fae5;
+  --color-terminal-cursor: #4ade80;
+  --color-terminal-cursor-accent: #020a06;
+  --color-terminal-selection: rgba(74, 222, 128, 0.32);
+  --color-terminal-black: #071a11;
+  --color-terminal-red: #f87171;
+  --color-terminal-green: #4ade80;
+  --color-terminal-yellow: #facc15;
+  --color-terminal-blue: #38bdf8;
+  --color-terminal-magenta: #a3e635;
+  --color-terminal-cyan: #34d399;
+  --color-tab: #04120c;
+  --color-tab-active: #020a06;
+  --color-menu: #071a11;
+  --color-menu-hover: #0d2818;
+  --color-primary: #4ade80;
+  --color-primary-foreground: #03130a;
+  --color-secondary: #0d2818;
+  --color-interaction-ask-surface: rgba(74, 222, 128, 0.16);
+  --color-interaction-ask-foreground: #86efac;
+  --color-foreground: #cceedd;
+  --color-foreground-subtle: color-mix(in oklab, #cceedd 60%, transparent);
+  --color-foreground-subtlest: color-mix(in oklab, #cceedd 30%, transparent);
+  --color-idle-task: #4ade80;
+  --color-idle-task-surface: #052e16;
+  --color-git-modified: #facc15;
+  --color-git-added: #4ade80;
+  --color-git-deleted: #f87171;
+  --color-git-renamed: #38bdf8;
+  --color-git-untracked: #4ade80;
+  --color-git-descendant: #facc15;
+  --color-toast: #071a11;
+  --color-tooltip: #071a11;
+  --color-tooltip-tag: #0d2818;
+  --color-tag: #0d2818;
+  --color-usage-chart-1: #4ade80;
+  --color-usage-chart-2: #a3e635;
+  --color-usage-chart-3: #34d399;
+  --color-usage-chart-4: #facc15;
+  --color-usage-chart-5: #f87171;
+  --color-usage-chart-6: #22d3ee;
+  --color-remote-wsl-surface: rgba(74, 222, 128, 0.16);
+  --color-remote-wsl-foreground: #86efac;
+  --color-remote-wsl-border: rgba(74, 222, 128, 0.42);
+}
+
+/* 暗夜行动：深蓝底 + 冰蓝/琥珀行动色 */
+.theme-zkali-nightops {
+  --color-background: #070d16;
+  --color-background-win-alt: #0e1a29;
+  --color-background-alt: color-mix(in oklab, #0e1a29 60%, transparent);
+  --color-brand: #38bdf8;
+  --color-resize-handle: #38bdf8;
+  --color-trajectory-user: #7dd3fc;
+  --color-trajectory-assistant: #5eead4;
+  --color-trajectory-reasoning: #fbbf24;
+  --color-trajectory-tool-call: #fb923c;
+  --color-trajectory-tool-result: #38bdf8;
+  --color-accent: #0a2540;
+  --color-find-highlight: #1e3a5f;
+  --color-find-highlight-active: #fb923c;
+  --color-border: rgba(125, 211, 252, 0.14);
+  --color-border-hover: rgba(125, 211, 252, 0.28);
+  --color-hover: rgba(125, 211, 252, 0.07);
+  --color-selected: rgba(125, 211, 252, 0.14);
+  --color-header: #0b1526;
+  --color-panel: #0b1526;
+  --color-sidebar: #091120;
+  --color-surface: rgba(125, 211, 252, 0.06);
+  --color-user-message-bubble: rgba(56, 189, 248, 0.14);
+  --color-surface-hover: rgba(125, 211, 252, 0.11);
+  --color-card: #0f1c31;
+  --color-popover: #0f1c31;
+  --color-popover-header: #0b1526;
+  --color-input: #0f1c31;
+  --color-input-focused: #070d16;
+  --color-input-border-focused: #38bdf8;
+  --color-terminal-bg: #070d16;
+  --color-terminal-fg: #dbeafe;
+  --color-terminal-cursor: #7dd3fc;
+  --color-terminal-cursor-accent: #070d16;
+  --color-terminal-selection: rgba(56, 189, 248, 0.35);
+  --color-terminal-black: #0f1c31;
+  --color-terminal-red: #f87171;
+  --color-terminal-green: #34d399;
+  --color-terminal-yellow: #fbbf24;
+  --color-terminal-blue: #38bdf8;
+  --color-terminal-magenta: #c084fc;
+  --color-terminal-cyan: #22d3ee;
+  --color-tab: #0b1526;
+  --color-tab-active: #070d16;
+  --color-menu: #0f1c31;
+  --color-menu-hover: #16283f;
+  --color-primary: #7dd3fc;
+  --color-primary-foreground: #04121f;
+  --color-secondary: #16283f;
+  --color-interaction-ask-surface: rgba(56, 189, 248, 0.2);
+  --color-interaction-ask-foreground: #7dd3fc;
+  --color-foreground: #cfe2f5;
+  --color-foreground-subtle: color-mix(in oklab, #cfe2f5 60%, transparent);
+  --color-foreground-subtlest: color-mix(in oklab, #cfe2f5 30%, transparent);
+  --color-idle-task: #f59e0b;
+  --color-idle-task-surface: #2a1a05;
+  --color-git-modified: #fbbf24;
+  --color-git-added: #34d399;
+  --color-git-deleted: #f87171;
+  --color-git-renamed: #38bdf8;
+  --color-git-untracked: #34d399;
+  --color-git-descendant: #fbbf24;
+  --color-toast: #0f1c31;
+  --color-tooltip: #0f1c31;
+  --color-tooltip-tag: #16283f;
+  --color-tag: #16283f;
+  --color-usage-chart-1: #38bdf8;
+  --color-usage-chart-2: #34d399;
+  --color-usage-chart-3: #c084fc;
+  --color-usage-chart-4: #f87171;
+  --color-usage-chart-5: #fb923c;
+  --color-usage-chart-6: #22d3ee;
+  --color-remote-ssh-surface: rgba(56, 189, 248, 0.16);
+  --color-remote-ssh-foreground: #7dd3fc;
+  --color-remote-ssh-border: rgba(56, 189, 248, 0.42);
+}
+
+/* 壁纸开启时的玻璃面板覆盖：三个沉浸主题共用一套「侧栏/头/卡片/面板」磨砂。
+ * 只覆盖大表面的透明度——popover/menu/tooltip 等浮层保持不透明，避免浮层
+ * 透出下层文本降低可读性。 */
+html.zkali-wallpaper.theme-zkali-dream {
+  --color-sidebar: color-mix(in oklab, #100a22 78%, transparent);
+  --color-header: color-mix(in oklab, #150d2b 82%, transparent);
+  --color-panel: color-mix(in oklab, #150d2b 82%, transparent);
+  --color-card: color-mix(in oklab, #1c1338 86%, transparent);
+  --color-tab: color-mix(in oklab, #150d2b 82%, transparent);
+}
+html.zkali-wallpaper.theme-zkali-cyber {
+  --color-sidebar: color-mix(in oklab, #030f0a 78%, transparent);
+  --color-header: color-mix(in oklab, #04120c 82%, transparent);
+  --color-panel: color-mix(in oklab, #04120c 82%, transparent);
+  --color-card: color-mix(in oklab, #071a11 86%, transparent);
+  --color-tab: color-mix(in oklab, #04120c 82%, transparent);
+}
+html.zkali-wallpaper.theme-zkali-nightops {
+  --color-sidebar: color-mix(in oklab, #091120 78%, transparent);
+  --color-header: color-mix(in oklab, #0b1526 82%, transparent);
+  --color-panel: color-mix(in oklab, #0b1526 82%, transparent);
+  --color-card: color-mix(in oklab, #0f1c31 86%, transparent);
+  --color-tab: color-mix(in oklab, #0f1c31 82%, transparent);
+}
+html.zkali-wallpaper:is(.theme-zkali-dream, .theme-zkali-cyber, .theme-zkali-nightops)
+  :is(.bg-sidebar, .bg-header, .bg-panel, .bg-card) {
+  backdrop-filter: blur(20px) saturate(1.3);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+}
+
 /*
  * 修复原因：之前只有 task 列表单独定制了滚动条，其他面板、下拉列表、代码区仍然保留系统默认样式，
  * 同一套界面里会出现粗细、圆角和轨道背景都不一致的问题。这里把这套透明轨道 + 圆角 thumb

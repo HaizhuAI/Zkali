@@ -82,7 +82,7 @@ function registerE2EStoreBridgesIfEnabled() {
       ? window.matchMedia("(prefers-color-scheme: dark)").matches
         ? "dark"
         : "light"
-      : saved === "dark" || saved === "zai-dark"
+      : saved === "dark" || saved === "zai-dark" || saved.startsWith("zkali-")
         ? "dark"
         : "light";
   const appliedTheme =
@@ -98,6 +98,10 @@ function registerE2EStoreBridgesIfEnabled() {
   if (resolved === "dark") document.documentElement.classList.add("dark");
   document.documentElement.classList.toggle("theme-zai-light", appliedTheme === "zai-light");
   document.documentElement.classList.toggle("theme-zai-dark", appliedTheme === "zai-dark");
+  document.documentElement.classList.toggle(
+    `theme-${appliedTheme}`,
+    appliedTheme.startsWith("zkali-"),
+  );
 }
 
 const isMacDesktop = navigator.userAgent.includes("Mac");

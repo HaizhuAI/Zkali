@@ -1,4 +1,5 @@
 export { ZkaliWallpaperLayer } from "./ZkaliWallpaperLayer.js";
+export { ZkaliFeatureSection } from "./ZkaliFeatureSection.js";
 export { WallpaperSection } from "./WallpaperSection.js";
 export { ZKALI_WALLPAPERS, findWallpaper } from "./wallpapers.js";
 export {
