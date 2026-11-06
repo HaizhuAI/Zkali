@@ -72,6 +72,7 @@ import type {
   UpdateCheckResultPayload,
   UpdateStatePayload,
   ZCodeStdioTapDevState,
+  ZkaliOpencodeZenPoolBridgeRequest,
   LoadCliMcpFromUserDirectoryRequest,
   MigrateLegacyCommonMcpRequest,
   SaveCliMcpToUserDirectoryRequest,
@@ -960,6 +961,9 @@ contextBridge.exposeInMainWorld("zcode", {
     ipcRenderer.invoke(PlatformChannels.SetTitleBarTheme, theme),
   /** 获取桌面端设备标识符（deviceMid） */
   getDeviceId: () => ipcRenderer.invoke(PlatformChannels.GetDeviceId),
+  /** zkali OpenCodeZen 号池：admin/v1 请求经主进程注入 Bearer 转发，adminKey 不出 preload。 */
+  zkaliOpencodeZenPoolRequest: (request: ZkaliOpencodeZenPoolBridgeRequest) =>
+    ipcRenderer.invoke(PlatformChannels.ZkaliOpencodeZenPoolRequest, request),
 });
 
 installPluginSandboxHostBridge();

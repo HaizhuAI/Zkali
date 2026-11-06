@@ -4,10 +4,12 @@
  * 读 stdin 的 hook 事件 JSON，创建 engagement 目录结构，
  * 探测工具矩阵，通过 additionalContext 注入会话。
  */
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, appendFileSync } from "node:fs";
-import { join } from "node:path";
-import { platform } from "node:os";
+import { spawnSync, spawn } from "node:child_process";
+import { existsSync, mkdirSync, appendFileSync, readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { platform, homedir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { get as httpGet } from "node:http";
 
 let raw = "";
 for await (const c of process.stdin) raw += c;
@@ -34,6 +36,53 @@ for (const t of QUICK) {
 
 const logDir = join(cwd, ".zkali", "journal");
 const day = new Date().toISOString().slice(0, 10);
+
+// ---------------------------------------------------------------------------
+// OpenCodeZen 免费号池：CLI-only 场景下由 session 钩子拉起网关进程。
+// 池进程是唯一状态所有者；enabled=false 或已在跑（/health）时静默跳过。
+// 桌面端由 main 进程管理同一脚本，同一 ~/.zcode 配置，先到先得（EADDRINUSE 自退）。
+// ---------------------------------------------------------------------------
+let poolNote = "disabled";
+try {
+  const poolCfgPath = join(homedir(), ".zcode", "zkali-opencodezen-pool.json");
+  const poolCfg = existsSync(poolCfgPath)
+    ? JSON.parse(readFileSync(poolCfgPath, "utf8"))
+    : null;
+  const poolEnabled = poolCfg ? poolCfg.enabled !== false : true;
+  const poolPort = Number(poolCfg?.port) > 0 ? Number(poolCfg.port) : 17331;
+  if (poolEnabled) {
+    const poolScript = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "zkali-opencodezen-pool.mjs",
+    );
+    const alive = await new Promise((resolve) => {
+      const probe = httpGet(
+        { host: "127.0.0.1", port: poolPort, path: "/health", timeout: 1500 },
+        (r) => {
+          r.resume();
+          resolve(r.statusCode === 200);
+        },
+      );
+      probe.on("error", () => resolve(false));
+      probe.on("timeout", () => probe.destroy());
+    });
+    if (alive) {
+      poolNote = `running :${poolPort}`;
+    } else if (existsSync(poolScript)) {
+      const child = spawn(process.execPath, [poolScript], {
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      child.unref();
+      poolNote = `spawned :${poolPort}`;
+    } else {
+      poolNote = "script-missing";
+    }
+  }
+} catch {
+  poolNote = "error";
+}
 appendFileSync(
   join(logDir, `${day}.md`),
   `\n## Session ${new Date().toISOString()}\n- source: ${ev.hook_event_name || "SessionStart"} / ${ev.source || "startup"}\n- dirs created: ${made.join(", ") || "none (already present)"}\n`,
@@ -59,6 +108,7 @@ const ORCHESTRATION = [
   `- 已挂载(${avail.length}): ${avail.join(", ") || "无"}`,
   `- 缺席(${missing.length}): ${missing.join(", ")}`,
   "- zkali-toolbox MCP: zkali_detect 全量探测 | zkali_run 白名单执行 | zkali_crypto CTF密码台 | zkali_journal 作战留痕",
+  `- OpenCodeZen 免费号池: ${poolNote}（设置→OpenCodeZen 号池管理设备/代理/轮询）`,
   `- 工作区已就绪: ${DIRS.join(" / ")} —— 原始数据存原样，结论写 findings/，关键信息 zkali_journal 落盘`,
 ].join("\n");
 

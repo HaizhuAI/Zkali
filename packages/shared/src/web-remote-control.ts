@@ -9,6 +9,8 @@ import type {
   WSLDistro,
   CreateTempTextAttachmentRequest,
   CreateTempTextAttachmentResult,
+  ZkaliOpencodeZenPoolBridgeRequest,
+  ZkaliOpencodeZenPoolBridgeResponse,
 } from "./platform.js";
 
 import type {
@@ -336,6 +338,7 @@ export interface WebRemoteControlPlatformMethodArgsMap {
   loadMcpFromUserDirectory: LoadCliMcpFromUserDirectoryRequest | undefined;
   saveMcpToUserDirectory: SaveCliMcpToUserDirectoryRequest;
   migrateLegacyCommonMcp: MigrateLegacyCommonMcpRequest | undefined;
+  zkaliOpencodeZenPoolRequest: ZkaliOpencodeZenPoolBridgeRequest;
 }
 
 export interface WebRemoteControlPlatformMethodResultMap {
@@ -347,6 +350,7 @@ export interface WebRemoteControlPlatformMethodResultMap {
   loadMcpFromUserDirectory: LoadCliMcpFromUserDirectoryResult;
   saveMcpToUserDirectory: { success: boolean; error?: string };
   migrateLegacyCommonMcp: MigrateLegacyCommonMcpResult;
+  zkaliOpencodeZenPoolRequest: ZkaliOpencodeZenPoolBridgeResponse;
 }
 
 export type WebRemoteControlPlatformMethod = keyof WebRemoteControlPlatformMethodResultMap;

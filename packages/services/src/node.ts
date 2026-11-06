@@ -497,6 +497,7 @@ import {
 import { createProviderProvisioningTarget } from "./model-provider/providerProvisioningTarget.js";
 import { IProviderProvisioningTargetService } from "./model-provider/providerProvisioning.js";
 import { buildOffPeakModelSelectionView } from "./model-provider/offPeakModelSelectionView.js";
+import { seedZkaliOpencodeZenProvider } from "./model-provider/zkaliOpencodeZenSeed.js";
 import { resolveClientConfigPlatform } from "./runtime-tools/clientPlatform.js";
 import {
   createAccountRequestAuthService,
@@ -3058,6 +3059,17 @@ export function createLocalServices(options: {
       log.info("Provider Registry 已就绪", {
         configRevision: snapshot.sourceRevisions.config,
         providerCount: snapshot.registry.providers.length,
+      });
+      // zkali OpenCodeZen 免费号池：号池网关存活时把本机 OpenAI 兼容端点
+      // 幂等注册为 personal Provider；网关未运行/已停用时静默跳过。
+      void seedZkaliOpencodeZenProvider({
+        configService: providerRuntime.configService,
+        logger: {
+          info: (msg, meta) => log.info(msg, meta),
+          warn: (msg, meta) => log.warn(msg, meta),
+        },
+      }).catch((error: unknown) => {
+        log.warn("OpenCodeZen 号池 Provider 注册失败", { error: String(error) });
       });
     },
     (error: unknown) => {

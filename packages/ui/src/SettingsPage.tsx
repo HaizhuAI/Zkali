@@ -90,6 +90,7 @@ import { HooksSection } from "@/settings/HooksSection.js";
 import { WorkspaceFileSearchSection } from "@/settings/WorkspaceFileSearchSection.js";
 import { MemorySettingsSection } from "@/settings/MemorySettingsSection.js";
 import { PersonalizationSection } from "@/settings/PersonalizationSection.js";
+import { OpenCodeZenPoolSection } from "@/settings/opencodezen-pool/OpenCodeZenPoolSection.js";
 import { BrowserSettingsSection } from "@/settings/BrowserSettingsSection.js";
 import { ComputerUseSection } from "@/settings/ComputerUseSection.js";
 import { ShortcutSettingsSection } from "@/settings/ShortcutSettingsSection.js";
@@ -2097,6 +2098,8 @@ export function SettingsPage({
                                 }
                               />
                             </ServiceProvider>
+                          ) : activeSection === "opencodezenPool" ? (
+                            <OpenCodeZenPoolSection isDesktop={Boolean(isDesktop)} />
                           ) : activeSection === "personalization" ? (
                             // 个性化指令编辑的是本机 ~/.zcode/AGENTS.md（Agent 实际读取的文件）。
                             // 仅桌面本地入口可编辑：手机远控的 base services 可能归属远程

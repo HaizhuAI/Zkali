@@ -262,6 +262,8 @@ export type {
   WSLDistro,
   WindowControlsOverlayReadyPayload,
   ZCodeStdioTapDevState,
+  ZkaliOpencodeZenPoolBridgeRequest,
+  ZkaliOpencodeZenPoolBridgeResponse,
 } from "./platform.js";
 export type {
   CuaAccessibilitySettingsResult,

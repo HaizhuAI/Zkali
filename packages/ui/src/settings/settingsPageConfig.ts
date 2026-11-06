@@ -78,6 +78,13 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     titleId: "settings.modelProviderTitle",
     groupId: "basics",
   },
+  // OpenCodeZen 免费号池：本机回环网关（账号/代理/轮询），紧跟模型供应商之后。
+  {
+    id: "opencodezenPool",
+    icon: Cable,
+    titleId: "settings.opencodezenPool.title",
+    groupId: "basics",
+  },
   // 个性化（用户自定义指令）是 Agent 能力组的第一项：编辑 ~/.zcode/AGENTS.md，
   // 对所有会话生效（spec：docs/ui/settings-personalization.md）。
   {
@@ -256,7 +263,11 @@ export const SETTINGS_SECTION_GROUPS = BASE_SETTINGS_SECTION_GROUPS.map((group) 
 export type { SettingsSectionId };
 
 /** 依赖本机 Source Server 管理与设备连接的设置页，Web 与手机远控不显示。 */
-const DESKTOP_ONLY_SETTINGS_SECTIONS = new Set<SettingsSectionId>(["remoteDevices", "dataSync"]);
+const DESKTOP_ONLY_SETTINGS_SECTIONS = new Set<SettingsSectionId>([
+  "remoteDevices",
+  "dataSync",
+  "opencodezenPool",
+]);
 
 export function isSettingsSectionAvailable(
   section: SettingsSectionId,

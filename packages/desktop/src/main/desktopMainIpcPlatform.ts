@@ -46,6 +46,7 @@ import { resolveDesktopWindowChromeState } from "./desktopWindowChromeState.js";
 import { handleWindowUnreadCountSync } from "./desktopWindowLifecycle.js";
 import { captureWindowScreenshot, openPathInFileManager } from "./desktopMainIpcHelpers.js";
 import { registerCuaPermissionIpcHandlers } from "./desktopCuaPermissionIpc.js";
+import { handleZkaliOpencodeZenPoolRequest } from "./zkaliOpencodeZenPool.js";
 import {
   registerDesktopBrowserIpcHandlers,
   type AttachBrowserGuest,
@@ -455,6 +456,9 @@ export function registerPlatformIpcHandlers(options: {
     (_event, request: string | ApplicationIconRequest) => getApplicationIcon(request),
   );
   ipcMain.handle(PlatformChannels.GetDeviceId, () => options.deviceMid);
+  ipcMain.handle(PlatformChannels.ZkaliOpencodeZenPoolRequest, (_event, payload) =>
+    handleZkaliOpencodeZenPoolRequest(payload),
+  );
   ipcMain.handle(PlatformChannels.ExportLogs, () => exportLogs());
   ipcMain.handle(PlatformChannels.CaptureWindowScreenshot, async (event) => {
     const senderWindow = BrowserWindow.fromWebContents(event.sender);

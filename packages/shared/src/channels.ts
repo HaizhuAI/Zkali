@@ -526,6 +526,8 @@ export const PlatformChannels = {
   MigrateLegacyCommonMcp: "zcode:migrate-legacy-common-mcp",
   /** Renderer → Main：获取当前设备的稳定标识符（deviceMid） */
   GetDeviceId: "zcode:get-device-id",
+  /** Renderer → Main：zkali OpenCodeZen 号池 admin/v1 请求代理（adminKey 不出主进程） */
+  ZkaliOpencodeZenPoolRequest: "zcode:zkali-opencodezen-pool-request",
 } as const;
 
 export type PlatformChannelName = (typeof PlatformChannels)[keyof typeof PlatformChannels];

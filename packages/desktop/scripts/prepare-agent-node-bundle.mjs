@@ -292,6 +292,7 @@ const officialPluginPackages = [
       "scripts/session-init.mjs",
       "scripts/cmd-journal.mjs",
       "scripts/zkali-toolbox.mjs",
+      "scripts/zkali-opencodezen-pool.mjs",
     ],
     stagedPath: "packages/zkali-plugin",
   },

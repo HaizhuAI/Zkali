@@ -236,5 +236,10 @@ export function createWebPlatform(options?: {
       ];
       return parts.filter(Boolean).join("|");
     },
+    // 号池进程只存在于被控桌面本机；无附着时返回"未运行"，设置页显示桌面端指引。
+    zkaliOpencodeZenPoolRequest: (payload) =>
+      platformProxy
+        ? platformProxy.requestPlatformMethod("zkaliOpencodeZenPoolRequest", payload)
+        : Promise.resolve({ status: 0, running: false, error: "desktop-only" }),
   };
 }

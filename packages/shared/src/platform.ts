@@ -1302,4 +1302,28 @@ export interface IPlatformService {
    *   抗浏览器/网络/语言/时区变化，换手机才会变
    */
   getDeviceId(): string;
+
+  /**
+   * zkali OpenCodeZen 免费号池 admin/v1 请求（仅桌面本机回环）。
+   * Renderer 不直接持有 adminKey：请求由主进程注入 Bearer 转发到 127.0.0.1 池网关。
+   * Web/远控端经 platformProxy 桥接到被控桌面；无桌面附着时返回 {status:0}。
+   */
+  zkaliOpencodeZenPoolRequest(
+    request: ZkaliOpencodeZenPoolBridgeRequest,
+  ): Promise<ZkaliOpencodeZenPoolBridgeResponse>;
+}
+
+/** OpenCodeZen 号池桥接请求：path 仅允许 /admin|/v1|/health 前缀。 */
+export interface ZkaliOpencodeZenPoolBridgeRequest {
+  method: "GET" | "POST" | "PATCH" | "DELETE";
+  path: string;
+  body?: unknown;
+}
+
+export interface ZkaliOpencodeZenPoolBridgeResponse {
+  status: number;
+  body?: unknown;
+  error?: string;
+  /** false = 池进程未运行（设置页据此显示"未运行"态）。 */
+  running?: boolean;
 }

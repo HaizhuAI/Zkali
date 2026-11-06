@@ -1539,3 +1539,11 @@ exceptions:
       - packages/ui/scripts/generate-wallpapers.mjs
       - packages/ui/src/assets/wallpapers/**
     reason: zkali 发行版壁纸主题模块（dsh wallpaper-engine 概念的原生移植）：偏好经 useZCodeStore/localStorage/广播同步，壁纸为仓内程序化生成的原创 SVG 资产；模块体量小且无独立契约层需求，由 ui legacy 模块兜底，随发行版登记例外而非新建 managed 模块。
+  - id: zkali-opencodezen-pool-module
+    rule: unmanaged-new-file
+    paths:
+      - packages/services/src/model-provider/zkaliOpencodeZenSeed.ts
+      - packages/desktop/src/main/zkaliOpencodeZenPool.ts
+      - packages/ui/src/settings/opencodezen-pool/**
+      - apps/zcode-cli/packages/zkali-plugin/scripts/zkali-opencodezen-pool.mjs
+    reason: zkali 发行版 OpenCodeZen 免费号池（opencode2api 网关形态 + OmniRoute 指纹轮询/每账号代理/冷却）：池进程是唯一状态所有者（~/.zcode/zkali-opencodezen-pool.json），services 侧仅做幂等 Provider seed，desktop main 只做进程拉起与 admin IPC 代理，ui 为设置页投影；四者按各自宿主 legacy 模块兜底，随发行版登记例外而非新建 managed 模块。
