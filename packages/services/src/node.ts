@@ -497,7 +497,7 @@ import {
 import { createProviderProvisioningTarget } from "./model-provider/providerProvisioningTarget.js";
 import { IProviderProvisioningTargetService } from "./model-provider/providerProvisioning.js";
 import { buildOffPeakModelSelectionView } from "./model-provider/offPeakModelSelectionView.js";
-import { seedZkaliOpencodeZenProvider } from "./model-provider/zkaliOpencodeZenSeed.js";
+import { seedZkaliOpencodeZenProvider, watchZkaliOpencodeZenPool } from "./model-provider/zkaliOpencodeZenSeed.js";
 import { resolveClientConfigPlatform } from "./runtime-tools/clientPlatform.js";
 import {
   createAccountRequestAuthService,
@@ -3061,7 +3061,8 @@ export function createLocalServices(options: {
         providerCount: snapshot.registry.providers.length,
       });
       // zkali OpenCodeZen 免费号池：号池网关存活时把本机 OpenAI 兼容端点
-      // 幂等注册为 personal Provider；网关未运行/已停用时静默跳过。
+      // 幂等注册为 personal Provider；网关可能晚于 providerRuntime 拉起，
+      // 未运行时按间隔重试，并对号池配置/状态文件挂 watcher（设置页启停即重 seed）。
       void seedZkaliOpencodeZenProvider({
         configService: providerRuntime.configService,
         logger: {
@@ -3070,6 +3071,13 @@ export function createLocalServices(options: {
         },
       }).catch((error: unknown) => {
         log.warn("OpenCodeZen 号池 Provider 注册失败", { error: String(error) });
+      });
+      watchZkaliOpencodeZenPool({
+        configService: providerRuntime.configService,
+        logger: {
+          info: (msg, meta) => log.info(msg, meta),
+          warn: (msg, meta) => log.warn(msg, meta),
+        },
       });
     },
     (error: unknown) => {

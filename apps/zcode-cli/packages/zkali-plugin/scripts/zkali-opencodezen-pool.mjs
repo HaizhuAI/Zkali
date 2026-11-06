@@ -3,8 +3,13 @@
  * zkali OpenCodeZen 免费号池网关。
  *
  * 本机 OpenAI 兼容端点：多 UUID 设备身份 + 独立出口代理 + 轮询调度 + 冷却/故障转移。
- * 上游为 OpenCode Zen 免费档（https://opencode.ai/zen/v1），契约：
- *   stream:true + 非空 tools + x-opencode-session(ses_，descending 计数窗口) + UA opencode/>=1.17。
+ * 上游为 OpenCode Zen 免费档匿名车道（https://opencode.ai/inference/openai/v1），契约：
+ *   stream:true + 非空 tools + x-opencode-session(ses_，descending 计数窗口)
+ *   + UA opencode/>=1.17 + Authorization: Bearer public。
+ *   2026-10 起免费档已从 /zen/v1 迁至 inference 车道，zen 车道对免费请求一律
+ *   FreeUsageLimitError——本网关按模型 cost 分流，免费模型走 inference、付费模型走 zen。
+ * 配额按出口 IP 计（实测：同一 IP 换任意 ses_ 均 429）——设备指纹决定身份稳定性，
+ * 出口代理决定配额独立性；两者都独立才构成一个可用"号"。
  * 参考：TiaraBasori/opencode2api（网关形态）、cheaper-inference/OmniRoute（指纹轮询/每账号代理/冷却）。
  *
  * 状态文件（本进程是唯一写者）：
@@ -22,10 +27,16 @@ import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync } from "
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 const DEFAULT_PORT = 17331;
-const UPSTREAM_BASE = "https://opencode.ai/zen/v1";
-const UPSTREAM_MODELS_URL = `${UPSTREAM_BASE}/models`;
+/** 付费档车道（需 OpenCode Go key）；免费档已迁出，免费请求在这里只会吃到 FreeUsageLimitError。 */
+const UPSTREAM_ZEN_BASE = "https://opencode.ai/zen/v1";
+/** 免费档匿名车道：目录面（/models 含 cost/limit 真值）与 OpenAI 面分离。 */
+const UPSTREAM_INFERENCE_BASE = "https://opencode.ai/inference/v1";
+const UPSTREAM_INFERENCE_OPENAI = "https://opencode.ai/inference/openai/v1";
+const UPSTREAM_MODELS_URL = `${UPSTREAM_INFERENCE_BASE}/models`;
+/** 官方客户端匿名车道凭证（opencode2api/OmniRoute 同款字面量）。 */
+const FREE_TIER_CREDENTIAL = "public";
 const USER_AGENT = "opencode/1.18.31";
 const DEFAULT_REQUEST_TIMEOUT_MS = 180_000;
 const STREAM_STALL_MS = 60_000;
@@ -35,39 +46,22 @@ const CONFIG_DIR = join(homedir(), ".zcode");
 const CONFIG_PATH = join(CONFIG_DIR, "zkali-opencodezen-pool.json");
 const STATE_PATH = join(CONFIG_DIR, "zkali-opencodezen-pool.state.json");
 
-/** 内置回退模型目录（上游 /models 不可达时使用）。 */
+/** 内置回退模型目录（上游 /models 不可达时使用）——与实测免费档目录一致。 */
 const FALLBACK_MODELS = [
-  { id: "big-pickle", context_window: 200_000 },
-  { id: "gpt-5-nano", context_window: 400_000 },
+  { id: "big-pickle", context_window: 200_000, free: true },
+  { id: "beam-free", context_window: 200_000, free: true },
+  { id: "flint-40b-free", context_window: 200_000, free: true },
+  { id: "mimo-v2.6-flash-free", context_window: 200_000, free: true },
+  { id: "nemotron-3.5-super-vl-free", context_window: 262_144, free: true },
+  { id: "nemotron-3.5-lightning-free", context_window: 262_144, free: true },
+  { id: "deepseek-v4.1-flash-free", context_window: 160_000, free: true },
+  { id: "glm-5.3-flash-free", context_window: 200_000, free: true },
+  { id: "pulse-alpha-free", context_window: 200_000, free: true },
+  { id: "crouton-alpha-free", context_window: 200_000, free: true },
 ];
 
-/**
- * 上游 /models 不返回上下文长度——按模型前缀给已知档位的估值，
- * Provider seed 侧把它写进 contextWindow；未知前缀按免费层常见 200k 兜底。
- */
-const MODEL_CONTEXT_TABLE = [
-  [/^gemini-/, 1_000_000],
-  [/^gpt-5/, 400_000],
-  [/^kimi-k/, 256_000],
-  [/^minimax-m/, 200_000],
-  [/^mimo-/, 256_000],
-  [/^mistral-/, 256_000],
-  [/^nemotron-/, 262_000],
-  [/^grok-/, 256_000],
-  [/^deepseek-/, 160_000],
-  [/^qwen/, 262_000],
-  [/^glm-/, 200_000],
-  [/^claude-/, 200_000],
-  [/^muse-/, 200_000],
-];
-const DEFAULT_CONTEXT_WINDOW = 200_000;
-
-function estimateContextWindow(modelId) {
-  for (const [re, cw] of MODEL_CONTEXT_TABLE) {
-    if (re.test(modelId)) return cw;
-  }
-  return DEFAULT_CONTEXT_WINDOW;
-}
+/** 目录不可用时的免费模型识别兜底：-free 后缀 + 已知免费 id。 */
+const LEGACY_FREE_IDS = new Set(FALLBACK_MODELS.map((m) => m.id));
 
 // ---------------------------------------------------------------------------
 // 配置加载/保存
@@ -94,6 +88,7 @@ function loadConfig() {
     if (typeof cfg.adminKey !== "string" || cfg.adminKey.length < 16) {
       cfg.adminKey = defaultConfig().adminKey;
     }
+    if (typeof cfg.zenApiKey !== "string") cfg.zenApiKey = "";
     return cfg;
   } catch {
     return defaultConfig();
@@ -198,17 +193,50 @@ function markSuccess(accountId) {
 // ---------------------------------------------------------------------------
 
 const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-let sessionCounter = 0;
 
-/** OpenCode `Identifier.descending()`：9hex 时间 + 低 12 位 = 0xFFF - counter(0..63)。 */
-export function mintOpencodeSessionId() {
-  const counter = sessionCounter++ % 64;
-  const timePart = Date.now().toString(16).padStart(9, "0").slice(-9) +
-    (0xfff - counter).toString(16).padStart(3, "0");
-  let rand = "";
-  const bytes = randomBytes(14);
-  for (let i = 0; i < 14; i++) rand += BASE62[bytes[i] % 62];
-  return `ses_${timePart}${rand}`;
+// OpenCode CLI `Identifier.descending()`：descending(ts) = ~(ts << 12 | counter)，48 位。
+// 上游免费档会按值解码校验：低 12 位须落在 0xFC0–0xFFF（counter 0–63）。
+// 种子确定性生成（与 opencode2api v1.3.8 CanonicalSessionID 逐字节一致）：
+// 同一设备+同一会话得到稳定 ses_，保住 prompt-cache 亲和与"一台设备"的身份语义。
+const OPENCODE_SESSION_COUNTER = 1n;
+const OPENCODE_SESSION_MASK_48 = 0xffffffffffffn;
+const OPENCODE_SESSION_TS_MAX = 0xfffffffffn;
+
+function base62From(bytes, length) {
+  let out = "";
+  for (let i = 0; i < length; i++) out += BASE62[bytes[i] % 62];
+  return out;
+}
+
+export function canonicalOpencodeId(prefix, seed) {
+  const bytes = seed
+    ? createHash("sha256").update(`opencode${prefix}${seed}`).digest()
+    : randomBytes(32);
+  if (prefix === "ses_") {
+    const ts36 =
+      ((BigInt(bytes[0]) << 28n) |
+        (BigInt(bytes[1]) << 20n) |
+        (BigInt(bytes[2]) << 12n) |
+        (BigInt(bytes[3]) << 4n) |
+        (BigInt(bytes[4]) >> 4n)) &
+      OPENCODE_SESSION_TS_MAX;
+    const value = ~((ts36 << 12n) | OPENCODE_SESSION_COUNTER) & OPENCODE_SESSION_MASK_48;
+    return `${prefix}${value.toString(16).padStart(12, "0")}${base62From(bytes.subarray(6), 14)}`;
+  }
+  return `${prefix}${bytes.subarray(0, 6).toString("hex")}${base62From(bytes.subarray(6), 14)}`;
+}
+
+/** 客户端会话亲和：透传 ZCode/客户端带来的会话标识，缺省回退设备自身 id。 */
+function clientSessionAffinity(reqHeaders, body) {
+  for (const key of ["x-opencode-session", "x-session-affinity", "x-session-id"]) {
+    const v = reqHeaders?.[key];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  for (const key of ["session", "session_id", "conversation_id", "chat_id"]) {
+    const v = body?.[key];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return null;
 }
 
 /** 形状记忆：key=model|promptHash，值为 "bare"|"tools"；LRU 64。 */
@@ -412,7 +440,15 @@ async function openUpstreamSocket(proxy, timeoutMs) {
 // 上游请求（https.request + createConnection 挂钩；SSE 直通/聚合）
 // ---------------------------------------------------------------------------
 
-function upstreamFetch(path, body, proxy, timeoutMs, signal) {
+function upstreamFetch(path, body, opts) {
+  const {
+    proxy = null,
+    timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+    signal = undefined,
+    sessionSeed = "",
+    apiKey = FREE_TIER_CREDENTIAL,
+    base = UPSTREAM_INFERENCE_OPENAI,
+  } = opts ?? {};
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body);
     let settled = false;
@@ -423,7 +459,7 @@ function upstreamFetch(path, body, proxy, timeoutMs, signal) {
       }
     }, timeoutMs);
     const req = httpsRequest(
-      `${UPSTREAM_BASE}${path}`,
+      `${base}${path}`,
       {
         method: "POST",
         agent: false,
@@ -433,7 +469,11 @@ function upstreamFetch(path, body, proxy, timeoutMs, signal) {
           "content-length": Buffer.byteLength(payload),
           accept: "text/event-stream",
           "user-agent": USER_AGENT,
-          "x-opencode-session": mintOpencodeSessionId(),
+          authorization: `Bearer ${apiKey}`,
+          "x-opencode-session": canonicalOpencodeId("ses_", sessionSeed),
+          "x-opencode-client": "desktop",
+          "x-opencode-project": "global",
+          "x-opencode-request": canonicalOpencodeId("msg_", `${sessionSeed}:${randomUUID()}`),
         },
       },
       (res) => {
@@ -549,9 +589,31 @@ function cooldownMsFor(status, headers) {
 // 账号请求（含轮询/形状回退/重试）
 // ---------------------------------------------------------------------------
 
-async function dispatchChat(cfg, body, clientSignal) {
+/** 车道选择：免费档 → inference+Bearer public；付费档 → zen+zenApiKey（未配 key 直接 402 不烧号）。 */
+function laneFor(cfg, modelId) {
+  if (isFreeModel(modelId)) return { base: UPSTREAM_INFERENCE_OPENAI, apiKey: FREE_TIER_CREDENTIAL, free: true };
+  return { base: UPSTREAM_ZEN_BASE, apiKey: cfg.zenApiKey || null, free: false };
+}
+
+/** 出口配额耗尽时给操作提示：无代理的设备换 IP 是唯一解法。 */
+function withQuotaHint(errText, hasProxy) {
+  if (!/FreeUsageLimitError|free usage limit/i.test(errText)) return errText;
+  return hasProxy
+    ? errText
+    : `${errText}（该出口 IP 免费额度已耗尽——配额按出口 IP 计，请为设备分配不同出口的代理后重试）`;
+}
+
+async function dispatchChat(cfg, body, clientSignal, affinity) {
   const surface = "chat";
   const wantsStream = body.stream === true;
+  const lane = laneFor(cfg, body.model);
+  if (!lane.free && !lane.apiKey) {
+    return {
+      kind: "error",
+      status: 402,
+      message: `${body.model} 为付费模型：免费号池仅覆盖免费档模型（目录中 cost=0）。付费模型需订阅 OpenCode Go 并在池配置中写入 zenApiKey。`,
+    };
+  }
   let lastError = "no account available";
   const tried = new Set();
   const { key, shape: initialShape } = plannedShape(body);
@@ -569,7 +631,14 @@ async function dispatchChat(cfg, body, clientSignal) {
     h.requests += 1;
     const upstreamBody = applyShape(body, shape, surface);
     try {
-      const res = await upstreamFetch("/chat/completions", upstreamBody, proxy?.parsed ?? null, cfg.requestTimeoutMs, clientSignal);
+      const res = await upstreamFetch("/chat/completions", upstreamBody, {
+        proxy: proxy?.parsed ?? null,
+        timeoutMs: cfg.requestTimeoutMs,
+        signal: clientSignal,
+        sessionSeed: `${account.id}:${affinity ?? account.id}`,
+        apiKey: lane.apiKey,
+        base: lane.base,
+      });
       if (res.statusCode === 200) {
         markSuccess(account.id);
         noteShape(key, shape, true);
@@ -586,7 +655,7 @@ async function dispatchChat(cfg, body, clientSignal) {
         continue;
       }
       if (isRefusal(res.statusCode, errText)) {
-        markFailure(account.id, cooldownMsFor(res.statusCode, res.headers), `HTTP ${res.statusCode}: ${errText.slice(0, 120)}`);
+        markFailure(account.id, cooldownMsFor(res.statusCode, res.headers), withQuotaHint(`HTTP ${res.statusCode}: ${errText.slice(0, 120)}`, !!proxy));
         lastError = `HTTP ${res.statusCode}`;
         continue;
       }
@@ -605,10 +674,18 @@ async function dispatchChat(cfg, body, clientSignal) {
   return { kind: "error", status: 503, message: `OpenCodeZen pool exhausted: ${lastError}` };
 }
 
-async function dispatchResponses(cfg, body, clientSignal) {
+async function dispatchResponses(cfg, body, clientSignal, affinity) {
   // responses 面同构处理：直通 SSE / 聚合后透传（responses API 的 JSON 即最后一个事件聚合复杂，
   // 直接回传 SSE 聚合的最后一个 response.completed 事件对象）。
   const wantsStream = body.stream === true;
+  const lane = laneFor(cfg, body.model);
+  if (!lane.free && !lane.apiKey) {
+    return {
+      kind: "error",
+      status: 402,
+      message: `${body.model} 为付费模型：免费号池仅覆盖免费档模型（目录中 cost=0）。付费模型需订阅 OpenCode Go 并在池配置中写入 zenApiKey。`,
+    };
+  }
   let lastError = "no account available";
   const tried = new Set();
   const { shape: initialShape } = plannedShape(body);
@@ -625,7 +702,14 @@ async function dispatchResponses(cfg, body, clientSignal) {
     h.requests += 1;
     const upstreamBody = applyShape(body, shape, "responses");
     try {
-      const res = await upstreamFetch("/responses", upstreamBody, proxy?.parsed ?? null, cfg.requestTimeoutMs, clientSignal);
+      const res = await upstreamFetch("/responses", upstreamBody, {
+        proxy: proxy?.parsed ?? null,
+        timeoutMs: cfg.requestTimeoutMs,
+        signal: clientSignal,
+        sessionSeed: `${account.id}:${affinity ?? account.id}`,
+        apiKey: lane.apiKey,
+        base: lane.base,
+      });
       if (res.statusCode === 200) {
         markSuccess(account.id);
         if (wantsStream) return { kind: "stream", res };
@@ -635,7 +719,7 @@ async function dispatchResponses(cfg, body, clientSignal) {
       }
       const errText = (await collectStream(res, 10_000).catch(() => Buffer.alloc(0))).toString("utf8").slice(0, 500);
       if (isRefusal(res.statusCode, errText)) {
-        markFailure(account.id, cooldownMsFor(res.statusCode, res.headers), `HTTP ${res.statusCode}: ${errText.slice(0, 120)}`);
+        markFailure(account.id, cooldownMsFor(res.statusCode, res.headers), withQuotaHint(`HTTP ${res.statusCode}: ${errText.slice(0, 120)}`, !!proxy));
         lastError = `HTTP ${res.statusCode}`;
         continue;
       }
@@ -679,15 +763,29 @@ function safeJson(text) {
 // ---------------------------------------------------------------------------
 
 let modelsCache = { at: 0, data: null };
+/** 目录元数据：id → {free, contextWindow, maxOutput}，lane 路由与上下文元数据共用。 */
+let modelMeta = new Map(FALLBACK_MODELS.map((m) => [m.id, { free: m.free, contextWindow: m.context_window, maxOutput: 32_000 }]));
 
-async function fetchModels(cfg) {
+/** 是否免费档模型（cost.text.*.price===0 或回退启发式）——决定走 inference 还是 zen 车道。 */
+function isFreeModel(modelId) {
+  const meta = modelMeta.get(modelId);
+  if (meta) return meta.free;
+  return /-free$/.test(modelId) || LEGACY_FREE_IDS.has(modelId);
+}
+
+async function fetchModels() {
   if (modelsCache.data && Date.now() - modelsCache.at < 300_000) return modelsCache.data;
   // 目录走直连（无账号也可拉）；失败回退内置目录。
   try {
     const res = await new Promise((resolve, reject) => {
       const req = httpsRequest(
         UPSTREAM_MODELS_URL,
-        { method: "GET", agent: false, headers: { "user-agent": USER_AGENT, accept: "application/json" }, timeout: 15_000 },
+        {
+          method: "GET",
+          agent: false,
+          headers: { "user-agent": USER_AGENT, authorization: `Bearer ${FREE_TIER_CREDENTIAL}`, accept: "application/json" },
+          timeout: 15_000,
+        },
         resolve,
       );
       req.on("error", reject);
@@ -698,24 +796,31 @@ async function fetchModels(cfg) {
       const raw = await collectStream(res, 15_000);
       const parsed = safeJson(raw.toString("utf8"));
       const list = Array.isArray(parsed?.data) ? parsed.data : [];
-      const free = list.filter((m) => m && typeof m.id === "string");
-      if (free.length > 0) {
+      const valid = list.filter((m) => m && typeof m.id === "string");
+      if (valid.length > 0) {
+        const next = new Map();
         modelsCache = {
           at: Date.now(),
           data: {
             object: "list",
-            data: free.map((m) => ({
-              id: m.id,
-              object: "model",
-              created: 0,
-              owned_by: "opencode-zen",
-              // 上游给了就用上游值；没给按前缀表估值（标 estimated 供调用方甄别）。
-              ...(typeof m.context_window === "number"
-                ? { context_window: m.context_window }
-                : { context_window: estimateContextWindow(m.id), context_window_estimated: true }),
-            })),
+            data: valid.map((m) => {
+              const free = m.cost?.text?.input?.price === 0 && m.cost?.text?.output?.price === 0;
+              const contextWindow = Number(m.limit?.context) || 200_000;
+              const maxOutput = Number(m.limit?.output) || 32_000;
+              next.set(m.id, { free, contextWindow, maxOutput });
+              return {
+                id: m.id,
+                object: "model",
+                created: 0,
+                owned_by: "opencode-zen",
+                context_window: contextWindow,
+                max_output_tokens: maxOutput,
+                zkali_free: free,
+              };
+            }),
           },
         };
+        modelMeta = next;
         return modelsCache.data;
       }
     }
@@ -733,7 +838,7 @@ async function fetchModels(cfg) {
         created: 0,
         owned_by: "opencode-zen",
         context_window: m.context_window,
-        context_window_estimated: true,
+        zkali_free: true,
       })),
     },
   };
@@ -750,10 +855,11 @@ function adminState(cfg) {
     schemaVersion: 1,
     version: VERSION,
     enabled: cfg.enabled !== false,
+    zenApiKeySet: !!cfg.zenApiKey,
     port: cfg.port,
     pid: process.pid,
     requestTimeoutMs: cfg.requestTimeoutMs,
-    upstream: UPSTREAM_BASE,
+    upstream: { free: UPSTREAM_INFERENCE_OPENAI, paid: UPSTREAM_ZEN_BASE },
     accounts: cfg.accounts.map((a) => {
       const h = healthOf(a.id);
       const proxy = a.proxyId ? cfg.proxies.find((p) => p.id === a.proxyId) : null;
@@ -895,19 +1001,40 @@ async function adminTestAccount(cfg, id, clientSignal) {
     max_tokens: 1,
   };
   try {
-    const res = await upstreamFetch("/chat/completions", body, proxy?.parsed ?? null, 30_000, clientSignal);
+    const res = await upstreamFetch("/chat/completions", body, {
+      proxy: proxy?.parsed ?? null,
+      timeoutMs: 30_000,
+      signal: clientSignal,
+      sessionSeed: `${account.id}:admin-test`,
+      apiKey: FREE_TIER_CREDENTIAL,
+      base: UPSTREAM_INFERENCE_OPENAI,
+    });
     const raw = await collectStream(res, 15_000).catch(() => Buffer.alloc(0));
     const latency = Date.now() - started;
     if (res.statusCode === 200) {
       markSuccess(id);
       return { ok: true, status: 200, latencyMs: latency };
     }
-    const text = raw.toString("utf8").slice(0, 200);
-    markFailure(id, cooldownMsFor(res.statusCode, res.headers), `HTTP ${res.statusCode}: ${text.slice(0, 120)}`);
-    return { ok: false, status: res.statusCode, latencyMs: latency, error: text };
+    const text = withQuotaHint(raw.toString("utf8").slice(0, 200), !!proxy);
+    markFailure(id, cooldownMsFor(res.statusCode, res.headers), `HTTP ${res.statusCode}: ${text.slice(0, 160)}`);
+    return { ok: false, status: res.statusCode, latencyMs: latency, error: text, proxied: !!proxy };
   } catch (e) {
     markFailure(id, 30_000, e?.message ?? e);
     return { ok: false, status: 0, latencyMs: Date.now() - started, error: e?.message ?? String(e) };
+  }
+}
+
+/** 代理连通性自检：仅验证隧道能建到 opencode.ai:443，区分"代理死了"与"配额耗尽"。 */
+async function adminTestProxy(cfg, id) {
+  const proxy = cfg.proxies.find((p) => p.id === id);
+  if (!proxy) throw Object.assign(new Error("代理不存在"), { status: 404 });
+  const started = Date.now();
+  try {
+    const socket = await openUpstreamSocket(proxy.parsed, 15_000);
+    socket.destroy();
+    return { ok: true, latencyMs: Date.now() - started };
+  } catch (e) {
+    return { ok: false, latencyMs: Date.now() - started, error: e?.message ?? String(e) };
   }
 }
 
@@ -969,13 +1096,13 @@ const server = createServer(async (req, res) => {
 
     // ---- OpenAI 兼容面 ----
     if (path === "/v1/models" && req.method === "GET") {
-      return sendJson(res, 200, await fetchModels(cfg));
+      return sendJson(res, 200, await fetchModels());
     }
     if (path === "/v1/chat/completions" && req.method === "POST") {
       const body = safeJson((await readBody(req)).toString("utf8"));
       if (!body || !body.model) return sendJson(res, 400, { error: { message: "invalid chat completion body", type: "invalid_request" } });
       const signal = req.socket ? abortOnClose(req) : undefined;
-      const out = await dispatchChat(cfg, body, signal);
+      const out = await dispatchChat(cfg, body, signal, clientSessionAffinity(req.headers, body));
       if (out.kind === "stream") {
         res.writeHead(200, {
           "content-type": "text/event-stream; charset=utf-8",
@@ -993,7 +1120,7 @@ const server = createServer(async (req, res) => {
       const body = safeJson((await readBody(req)).toString("utf8"));
       if (!body || !body.model) return sendJson(res, 400, { error: { message: "invalid responses body", type: "invalid_request" } });
       const signal = req.socket ? abortOnClose(req) : undefined;
-      const out = await dispatchResponses(cfg, body, signal);
+      const out = await dispatchResponses(cfg, body, signal, clientSessionAffinity(req.headers, body));
       if (out.kind === "stream") {
         res.writeHead(200, {
           "content-type": "text/event-stream; charset=utf-8",
@@ -1011,7 +1138,12 @@ const server = createServer(async (req, res) => {
     // ---- admin 面 ----
     if (path === "/admin/state" && req.method === "GET") {
       const state = adminState(cfg);
-      state.models = (await fetchModels(cfg)).data.map((m) => m.id);
+      state.models = (await fetchModels()).data.map((m) => ({
+        id: m.id,
+        free: m.zkali_free === true,
+        contextWindow: m.context_window ?? null,
+        maxOutput: m.max_output_tokens ?? null,
+      }));
       return sendJson(res, 200, state);
     }
     if (path === "/admin/enabled" && req.method === "POST") {
@@ -1065,6 +1197,10 @@ const server = createServer(async (req, res) => {
       const signal = req.socket ? abortOnClose(req) : undefined;
       return sendJson(res, 200, await adminTestAccount(cfg, testMatch[1], signal));
     }
+    const proxyTestMatch = path.match(/^\/admin\/proxies\/([0-9a-f-]{36})\/test$/);
+    if (proxyTestMatch && req.method === "POST") {
+      return sendJson(res, 200, await adminTestProxy(cfg, proxyTestMatch[1]));
+    }
     const proxyMatch = path.match(/^\/admin\/proxies\/([0-9a-f-]{36})$/);
     if (proxyMatch && req.method === "DELETE") {
       const id = proxyMatch[1];
@@ -1082,8 +1218,11 @@ const server = createServer(async (req, res) => {
       if (Number.isFinite(patch.requestTimeoutMs)) {
         cfg.requestTimeoutMs = Math.min(Math.max(patch.requestTimeoutMs, 10_000), 600_000);
       }
+      if (typeof patch.zenApiKey === "string") {
+        cfg.zenApiKey = patch.zenApiKey.trim();
+      }
       saveConfig(cfg);
-      return sendJson(res, 200, { requestTimeoutMs: cfg.requestTimeoutMs });
+      return sendJson(res, 200, { requestTimeoutMs: cfg.requestTimeoutMs, zenApiKeySet: !!cfg.zenApiKey });
     }
 
     return sendJson(res, 404, { error: { message: "not found", path } });

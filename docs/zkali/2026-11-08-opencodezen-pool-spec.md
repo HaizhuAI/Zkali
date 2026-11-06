@@ -87,3 +87,37 @@ services zkaliOpencodeZenSeed.ts  ── host bootstrap 时读取 state 文件�
 - `/v1/models` 实拉上游返回 80 个模型，全部带 `context_window`（上游无值时按前缀表估值并标
   `context_window_estimated`，Provider seed 据此写 `contextWindow` 元数据）。
 - 会话头生成器输出匹配 `ses_` + 递减计数窗口正则；UA 固定 `opencode/1.18.31`。
+
+## 8. 上游契约修正（2026-11-08，v1.1.0）
+
+实测 OpenCode 上游行为修正初版假设，网关按真实契约重写：
+
+- **车道迁移**：免费档已从 `/zen/v1` 迁至 `https://opencode.ai/inference/openai/v1`
+  （OmniRoute `opencodeFreeTierContract.ts` 同源结论）。zen 车道对免费请求一律
+  `FreeUsageLimitError`——用户报告的"全部 429"主因之一（另一因见下）。
+- **匿名凭证**：inference 车道要求 `Authorization: Bearer public`（官方客户端
+  匿名车道凭证，opencode2api 同款字面量）；初版网关未发 Authorization 属契约缺陷。
+- **目录分流**：`/inference/v1/models` 返回 per-model `cost`/`limit`/`api.*.base_url`
+  真值。`cost.text.*.price===0` 即免费档（实测 10 个：big-pickle、beam-free、
+  flint-40b-free、mimo-v2.6-flash-free、nemotron-3.5-{super-vl,lightning}-free、
+  deepseek-v4.1-flash-free、glm-5.3-flash-free、{pulse,crouton}-alpha-free）；
+  `limit.context` 取代前缀估值成为 context_window 真值。
+- **配额维度实测**：配额校验先于会话校验——垃圾 ses_/无 ses_/合法 ses_ 同出口
+  一律 429，证明配额按**出口 IP** 计。设备指纹保身份稳定性，出口代理保配额独立性。
+- **会话标识**：`x-opencode-session` 改为 canonical `ses_`（与 opencode2api v1.3.8
+  `CanonicalSessionID` 逐字节一致：sha256 种子 → 36bit ts → `~(ts<<12|1)` →
+  12hex+14base62），按"设备uuid+客户端会话亲和"定种子，同会话稳定（prompt-cache
+  亲和）；附 `x-opencode-client/project/request` 全套头。
+- **付费档**：非免费模型未配 `zenApiKey` 时直接 402 拒付不烧号池；`PATCH /admin/config`
+  可写入 zenApiKey（adminState 只回显 `zenApiKeySet`）。
+- **FreeUsageLimitError 提示**：未分配代理的设备吃到配额错误时，lastError 追加
+  "出口 IP 配额耗尽"指引；新增 `POST /admin/proxies/:id/test` 隧道自检区分
+  "代理死了"与"配额耗尽"（实测用户的 socks5 出口即为 handshake timeout）。
+- **Provider seed 修复（真实事故根因）**：旧版 `isSeedProvider` 用
+  `^http://127\.0\.0\.1:\d+/v1` 匹配任意回环 Provider，把用户自有「千问夸克版」
+  (127.0.0.1:18788, sk-quark) 覆写成号池绑定。新锚点=名称精确/adminKey 指纹/
+  网关精确地址；池绑定 rule 改名归一 + 凭据刷新；成员名单收敛为免费目录
+  （缺补/失效删）；`pool-not-running` 重试 8×15s + fs.watch 监听启停重 seed。
+- 手工修复记录：千问夸克版已按 provider_config.json.bak.20261017 恢复原始
+  baseUrl/key/models；`OpenCodeZen 免费号池` Provider（id: opencodezen-pool）
+  已带 10 个免费模型 + 真实 contextWindow 写入配置。

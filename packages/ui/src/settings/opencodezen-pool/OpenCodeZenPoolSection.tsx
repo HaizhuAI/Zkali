@@ -31,16 +31,25 @@ interface PoolProxy {
   assignedTo: string[];
 }
 
+interface PoolModel {
+  id: string;
+  free: boolean;
+  contextWindow: number | null;
+  maxOutput: number | null;
+}
+
 interface PoolState {
   version: string;
   enabled: boolean;
   port: number;
   pid: number;
-  upstream: string;
+  upstream: string | { free: string; paid: string };
+  zenApiKeySet?: boolean;
   requestTimeoutMs: number;
   accounts: PoolAccount[];
   proxies: PoolProxy[];
-  models: string[];
+  /** 旧版网关返回 string[]，新版返回对象数组——渲染处归一化。 */
+  models: Array<PoolModel | string>;
   stats: {
     accountCount: number;
     proxyCount: number;
@@ -433,14 +442,27 @@ export function OpenCodeZenPoolSection({ isDesktop }: { isDesktop: boolean }) {
       <SettingsGroupCard>
         <div className="px-4 py-3">
           <div className="flex flex-wrap gap-2">
-            {(state?.models ?? []).map((id) => (
-              <span
-                key={id}
-                className="rounded-md bg-surface px-2 py-1 font-mono text-ui-sm text-foreground"
-              >
-                {id}
-              </span>
-            ))}
+            {(state?.models ?? []).map((raw) => {
+              const m: PoolModel = typeof raw === "string" ? { id: raw, free: true, contextWindow: null, maxOutput: null } : raw;
+              return (
+                <span
+                  key={m.id}
+                  className={
+                    m.free
+                      ? "rounded-md bg-surface px-2 py-1 font-mono text-ui-sm text-foreground"
+                      : "rounded-md bg-surface px-2 py-1 font-mono text-ui-sm text-foreground-subtle line-through opacity-60"
+                  }
+                  title={
+                    m.free
+                      ? `${m.id} · ${(m.contextWindow ?? 0).toLocaleString()} ctx`
+                      : t("settings.opencodezenPool.paidModelHint")
+                  }
+                >
+                  {m.id}
+                  {m.free && m.contextWindow ? ` (${Math.round(m.contextWindow / 1000)}k)` : ""}
+                </span>
+              );
+            })}
             {(state?.models ?? []).length === 0 ? (
               <span className="text-ui-sm text-foreground-subtle">
                 {t("settings.opencodezenPool.noModels")}
