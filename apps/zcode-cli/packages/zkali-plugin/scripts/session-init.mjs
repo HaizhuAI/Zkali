@@ -107,7 +107,7 @@ const ORCHESTRATION = [
   "## 武器",
   `- 已挂载(${avail.length}): ${avail.join(", ") || "无"}`,
   `- 缺席(${missing.length}): ${missing.join(", ")}`,
-  "- zkali-toolbox MCP: zkali_detect 全量探测 | zkali_run 白名单执行 | zkali_crypto CTF密码台 | zkali_journal 作战留痕",
+  "- zkali-toolbox MCP: zkali_detect 全量探测 | zkali_run 白名单执行 | zkali_bootscope SpringBoot端点探测 | zkali_crypto CTF密码台 | zkali_journal 作战留痕",
   `- OpenCodeZen 免费号池: ${poolNote}（设置→OpenCodeZen 号池管理设备/代理/轮询）`,
   `- 工作区已就绪: ${DIRS.join(" / ")} —— 原始数据存原样，结论写 findings/，关键信息 zkali_journal 落盘`,
 ].join("\n");

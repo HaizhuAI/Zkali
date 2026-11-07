@@ -12,9 +12,9 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { platform } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SERVER = { name: "zkali-toolbox", version: "1.0.0" };
@@ -334,6 +334,27 @@ const TOOLS = [
     },
   },
   {
+    name: "zkali_bootscope",
+    description: "Spring Boot 未授权路径探测（BootScope 引擎移植）：67 条 Actuator 2.x/1.x、Swagger/OpenAPI、knife4j、Druid 路径字典 + 绕过/URL 编码变体 + 基线校准（SPA 回退/软 404/统一拦截降噪）。对 Java/Spring 目标或未知 Web 目标做端点测绘时首选，产出 critical→info 分级命中与受保护端点清单。仅只读 GET、默认不带 Cookie；可配 HTTP/SOCKS5 代理出口。",
+    inputSchema: {
+      type: "object",
+      required: ["target"],
+      properties: {
+        target: { type: "string", description: "BaseURL：https://host[:port][/context-path]，裸 host 默认走 https" },
+        proxy: { type: "string", description: "出口代理 http(s):// 或 socks5://[user:pass@]host:port" },
+        interval_s: { type: "number", description: "每个路径 fuzz 后的间隔秒（>0 强制串行，支持 0.3 等小数）" },
+        concurrency: { type: "integer", description: "并发数，默认 5" },
+        timeout_ms: { type: "integer", description: "单请求超时，默认 8000" },
+        budget: { type: "integer", description: "请求预算上限，默认 1000" },
+        no_bypass: { type: "boolean", description: "不跑绕过/编码变体，仅直连探测" },
+        headers: { type: "array", items: { type: "string" }, description: "附加请求头 \"K: V\" 数组（如 Cookie/Authorization）" },
+        insecure: { type: "boolean", description: "跳过 TLS 证书校验（自签目标）" },
+        save_report: { type: "boolean", description: "把 md/csv/json 三份报告落到 .zkali/output/bootscope-<ts>/" },
+        cwd: { type: "string", description: "engagement 目录定位基准（save_report 用）" },
+      },
+    },
+  },
+  {
     name: "zkali_journal",
     description: "向 engagement 作战日志（.zkali/journal/YYYY-MM-DD.md）追加带时间戳的条目：finding/note/command/ioc/credential。用于全程留痕与报告素材。",
     inputSchema: {
@@ -392,6 +413,44 @@ async function callTool(name, args) {
     }
     case "zkali_crypto":
       return { op: args?.op, result: cryptoOp(String(args?.op), args || {}) };
+    case "zkali_bootscope": {
+      const target = String(args?.target || "").trim();
+      if (!target) throw new Error("target is required");
+      const script = join(dirname(fileURLToPath(import.meta.url)), "zkali-bootscope.mjs");
+      if (!existsSync(script)) throw new Error("zkali-bootscope.mjs not found next to toolbox");
+      const cliArgs = [script, target, "-q"];
+      let reportDir = null;
+      if (args?.save_report) {
+        reportDir = join(engagementDir(args?.cwd), "output", `bootscope-${Date.now()}`);
+        cliArgs.push("--json", join(reportDir, "findings.json"),
+          "--md", join(reportDir, "report.md"), "--csv", join(reportDir, "findings.csv"));
+      }
+      if (args?.proxy) cliArgs.push("--proxy", String(args.proxy));
+      if (args?.interval_s != null) cliArgs.push("--interval", String(args.interval_s));
+      if (args?.concurrency) cliArgs.push("--concurrency", String(args.concurrency));
+      if (args?.timeout_ms) cliArgs.push("--timeout", String(args.timeout_ms));
+      if (args?.budget) cliArgs.push("--budget", String(args.budget));
+      if (args?.no_bypass) cliArgs.push("--no-bypass");
+      if (args?.insecure) cliArgs.push("--insecure");
+      cliArgs.push("--show-protected");
+      for (const h of args?.headers || []) cliArgs.push("--header", String(h));
+      /* 预算换算时长上限：单请求 timeout × 请求数 / 并发，钳 [120s, 900s] */
+      const budget = Math.min(Math.max(args?.budget ?? 1000, 1), 1000);
+      const perReq = Math.min(Math.max(args?.timeout_ms ?? 8000, 1000), 30000);
+      const conc = Math.max(args?.interval_s > 0 ? 1 : (args?.concurrency ?? 5), 1);
+      const waitMs = Math.min(Math.max(120000, Math.ceil((budget + 100) * perReq / conc)), 900000);
+      const res = await runProcess(process.execPath, cliArgs, {
+        cwd: args?.cwd, timeoutMs: waitMs, maxOutputBytes: 2 * 1024 * 1024,
+      });
+      if (!res.ok) return { ok: false, error: res.error };
+      let parsed;
+      try { parsed = JSON.parse(res.stdout); } catch {
+        return { ok: false, error: "scanner output unparseable", stdout_tail: res.stdout.slice(-2000), stderr_tail: res.stderr.slice(-2000), exitCode: res.exitCode };
+      }
+      if (reportDir) parsed.reports = { dir: reportDir, markdown: join(reportDir, "report.md"), csv: join(reportDir, "findings.csv"), json: join(reportDir, "findings.json") };
+      if (res.stderr && res.stderr.trim()) parsed.stderr_tail = res.stderr.trim().slice(-1000);
+      return parsed;
+    }
     case "zkali_journal": {
       const dir = join(engagementDir(args?.cwd), "journal");
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -443,7 +502,7 @@ async function handle(line) {
           protocolVersion: params?.protocolVersion || "2024-11-05",
           capabilities: { tools: {} },
           serverInfo: SERVER,
-          instructions: "zkali-toolbox: security engagement toolbox. Start with zkali_detect to map available binaries; use zkali_run for allowlisted tools, zkali_crypto for CTF crypto, zkali_journal for findings.",
+          instructions: "zkali-toolbox: security engagement toolbox. Start with zkali_detect to map available binaries; use zkali_run for allowlisted tools, zkali_bootscope for Spring Boot/API endpoint discovery (actuator/swagger/druid unauth probing), zkali_crypto for CTF crypto, zkali_journal for findings.",
         });
       case "ping":
         return reply({});

@@ -159,3 +159,43 @@ Hook 层       SessionStart → session-init.mjs
   预览协议 30min TTL 会过期）。`settings.id === "custom"` 时壁纸层
   改读 `customDataUrl`；画廊尾部出现自定义缩略图，悬停 × 可移除
   （若正在使用则回退默认内置图）。导入失败在设置行描述位提示。
+
+## BootScope 端点探测集成（2026-11-08）
+
+- 上游 `XiaoRoan/BootScope`（浏览器扩展）的核心引擎移植为
+  `apps/zcode-cli/packages/zkali-plugin/scripts/zkali-bootscope.mjs`
+  （零依赖 Node CLI，~850 行）：67 条路径字典（Actuator 2.x/1.x、
+  Swagger/OpenAPI、knife4j、Druid）、key 路径绕过变体 +
+  Actuator 编码变体、随机路径基线校准（SPA 回退 / 软 404 /
+  全站统一 401/403 降噪）、`X-Application-Context`/Whitelabel/
+  Boot 错误 JSON 指纹采集、跳登录→protected 判定、shutdown 仅
+  GET 探存在性（405）、请求预算 1000、interval>0 强制串行。
+- Node 侧新增：手动重定向跟随（≤8 跳，记录 finalUrl/redirected）、
+  正文截断读取（heapdump 64B / logfile 8KB / 其余 128KB，
+  gzip/deflate 解压）、http(s)://socks5 出口代理隧道（CONNECT +
+  SOCKS5 握手，复用号池同款实现）、`--header` 附加头（可带
+  Cookie 做认证态探测）、`--insecure` 跳过 TLS 校验、
+  JSON/Markdown/CSV(BOM) 三格式落盘。
+- `zkali-toolbox.mjs` 新增 `zkali_bootscope` MCP 工具：
+  spawn `process.execPath zkali-bootscope.mjs -q`（同目录解析），
+  超时时限按预算×单请求超时/并发钳 [120s,900s]，
+  `save_report` 落 `.zkali/output/bootscope-<ts>/`（md+csv+json），
+  stdout JSON 原样返回（findings=命中+受保护，默认 --show-protected）。
+- 技能 `skills/zkali-bootscope/SKILL.md`（何时用/参数/严重级解读/
+  利用链联动），命令 `commands/bootscope.md`（`/bootscope <url>`），
+  session-init 武器清单加入 `zkali_bootscope`。插件构成更新为
+  9 agents / 11 skills / 8 commands。
+- 打包登记：`sea-official-plugin-assets.mjs` 与
+  `official-plugin-definitions.ts` 的 requiredSeedPaths 均补录
+  `scripts/zkali-bootscope.mjs`、`skills/zkali-bootscope/SKILL.md`、
+  `commands/bootscope.md`（definitions 同时补录此前漏登的
+  `scripts/zkali-opencodezen-pool.mjs`）。
+- 浏览器专属的 baseURL 推断（DOM/Performance/同源 JS 资源分析）
+  未移植——CLI 场景无"当前标签页"概念；target 直给或带
+  context-path 即可，推断价值由 agent 前置 recon 承担。
+- 验证：mock Spring Boot（env/heapdump/api-docs/druid 命中、
+  mappings 401、shutdown 405）→ 651 请求 5 命中 2 受保护，
+  基线降噪正常；MCP 端到端 `zkali_bootscope` 调用返回结构化
+  summary+findings 并落盘三格式报告。plugins.test 中
+  requiredSeedPaths 对齐用例通过（其余 33 项 5s 超时为本机
+  环境性拖慢，与本改动无关）。
