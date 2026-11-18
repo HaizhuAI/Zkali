@@ -264,6 +264,8 @@ export type {
   ZCodeStdioTapDevState,
   ZkaliOpencodeZenPoolBridgeRequest,
   ZkaliOpencodeZenPoolBridgeResponse,
+  ZkaliAllinBridgeRequest,
+  ZkaliAllinBridgeResponse,
 } from "./platform.js";
 export type {
   CuaAccessibilitySettingsResult,

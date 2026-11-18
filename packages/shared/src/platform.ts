@@ -1311,6 +1311,15 @@ export interface IPlatformService {
   zkaliOpencodeZenPoolRequest(
     request: ZkaliOpencodeZenPoolBridgeRequest,
   ): Promise<ZkaliOpencodeZenPoolBridgeResponse>;
+
+  /**
+   * zkali Allin 聚合网关 admin/v1 请求（仅桌面本机回环）。
+   * Renderer 不直接持有 authKey：请求由主进程注入 Bearer 转发到 127.0.0.1 网关。
+   * Web/远控端经 platformProxy 桥接到被控桌面；无桌面附着时返回 {status:0}。
+   */
+  zkaliAllinRequest(
+    request: ZkaliAllinBridgeRequest,
+  ): Promise<ZkaliAllinBridgeResponse>;
 }
 
 /** OpenCodeZen 号池桥接请求：path 仅允许 /admin|/v1|/health 前缀。 */
@@ -1325,5 +1334,20 @@ export interface ZkaliOpencodeZenPoolBridgeResponse {
   body?: unknown;
   error?: string;
   /** false = 池进程未运行（设置页据此显示"未运行"态）。 */
+  running?: boolean;
+}
+
+/** Allin 聚合网关桥接请求：path 仅允许 /admin|/v1|/health 前缀。 */
+export interface ZkaliAllinBridgeRequest {
+  method: "GET" | "POST" | "PATCH" | "DELETE";
+  path: string;
+  body?: unknown;
+}
+
+export interface ZkaliAllinBridgeResponse {
+  status: number;
+  body?: unknown;
+  error?: string;
+  /** false = 网关进程未运行（设置页据此显示"未运行"态）。 */
   running?: boolean;
 }

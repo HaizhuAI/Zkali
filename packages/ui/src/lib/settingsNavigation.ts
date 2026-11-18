@@ -25,7 +25,8 @@ export type SettingsSectionId =
   | "computerUse"
   | "automations"
   | "shortcuts"
-  | "opencodezenPool";
+  | "opencodezenPool"
+  | "allinGw";
 
 export type SettingsUsageTabTarget = "app" | "codingPlan";
 export type SettingsPluginTabTarget = "plugins" | "mcps" | "skills" | "commands";
@@ -91,7 +92,10 @@ function isSettingsSectionId(value: string): value is SettingsSectionId {
     value === "workspaceFileSearch" ||
     value === "computerUse" ||
     value === "automations" ||
-    value === "shortcuts"
+    value === "shortcuts" ||
+    // 这两个分区此前漏在校验表外：last-section 持久化对它们一直静默失效。
+    value === "opencodezenPool" ||
+    value === "allinGw"
   );
 }
 

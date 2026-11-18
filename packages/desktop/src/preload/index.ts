@@ -73,6 +73,7 @@ import type {
   UpdateStatePayload,
   ZCodeStdioTapDevState,
   ZkaliOpencodeZenPoolBridgeRequest,
+  ZkaliAllinBridgeRequest,
   LoadCliMcpFromUserDirectoryRequest,
   MigrateLegacyCommonMcpRequest,
   SaveCliMcpToUserDirectoryRequest,
@@ -964,6 +965,9 @@ contextBridge.exposeInMainWorld("zcode", {
   /** zkali OpenCodeZen 号池：admin/v1 请求经主进程注入 Bearer 转发，adminKey 不出 preload。 */
   zkaliOpencodeZenPoolRequest: (request: ZkaliOpencodeZenPoolBridgeRequest) =>
     ipcRenderer.invoke(PlatformChannels.ZkaliOpencodeZenPoolRequest, request),
+  /** zkali Allin 聚合网关：admin/v1 请求经主进程注入 Bearer 转发，authKey 不出 preload。 */
+  zkaliAllinRequest: (request: ZkaliAllinBridgeRequest) =>
+    ipcRenderer.invoke(PlatformChannels.ZkaliAllinRequest, request),
 });
 
 installPluginSandboxHostBridge();

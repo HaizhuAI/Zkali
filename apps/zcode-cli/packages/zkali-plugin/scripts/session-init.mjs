@@ -83,6 +83,53 @@ try {
 } catch {
   poolNote = "error";
 }
+
+// ---------------------------------------------------------------------------
+// Allin 聚合网关：CLI-only 场景下由 session 钩子拉起网关进程。
+// 网关是唯一状态所有者；enabled=false 或已在跑（/health）时静默跳过。
+// 桌面端由 main 进程管理同一脚本，同一 ~/.zcode 配置，先到先得（EADDRINUSE 自退）。
+// ---------------------------------------------------------------------------
+let allinNote = "disabled";
+try {
+  const allinCfgPath = join(homedir(), ".zcode", "zkali-allin.json");
+  const allinCfg = existsSync(allinCfgPath)
+    ? JSON.parse(readFileSync(allinCfgPath, "utf8"))
+    : null;
+  const allinEnabled = allinCfg ? allinCfg.enabled !== false : true;
+  const allinPort = Number(allinCfg?.server?.port) > 0 ? Number(allinCfg.server.port) : 17332;
+  if (allinEnabled) {
+    const allinScript = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "zkali-allin-gw.mjs",
+    );
+    const alive = await new Promise((resolve) => {
+      const probe = httpGet(
+        { host: "127.0.0.1", port: allinPort, path: "/health", timeout: 1500 },
+        (r) => {
+          r.resume();
+          resolve(r.statusCode === 200);
+        },
+      );
+      probe.on("error", () => resolve(false));
+      probe.on("timeout", () => probe.destroy());
+    });
+    if (alive) {
+      allinNote = `running :${allinPort}`;
+    } else if (existsSync(allinScript)) {
+      const child = spawn(process.execPath, [allinScript], {
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      child.unref();
+      allinNote = `spawned :${allinPort}`;
+    } else {
+      allinNote = "script-missing";
+    }
+  }
+} catch {
+  allinNote = "error";
+}
 appendFileSync(
   join(logDir, `${day}.md`),
   `\n## Session ${new Date().toISOString()}\n- source: ${ev.hook_event_name || "SessionStart"} / ${ev.source || "startup"}\n- dirs created: ${made.join(", ") || "none (already present)"}\n`,
@@ -109,6 +156,7 @@ const ORCHESTRATION = [
   `- 缺席(${missing.length}): ${missing.join(", ")}`,
   "- zkali-toolbox MCP: zkali_detect 全量探测 | zkali_run 白名单执行 | zkali_bootscope SpringBoot端点探测 | zkali_crypto CTF密码台 | zkali_journal 作战留痕",
   `- OpenCodeZen 免费号池: ${poolNote}（设置→OpenCodeZen 号池管理设备/代理/轮询）`,
+  `- Allin 聚合网关: ${allinNote}（设置→Allin 网关管理 21 家供应商账号/代理/分组路由）`,
   `- 工作区已就绪: ${DIRS.join(" / ")} —— 原始数据存原样，结论写 findings/，关键信息 zkali_journal 落盘`,
 ].join("\n");
 

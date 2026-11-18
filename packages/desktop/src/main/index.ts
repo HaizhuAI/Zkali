@@ -240,6 +240,11 @@ import {
   stopZkaliOpencodeZenPool,
 } from "./zkaliOpencodeZenPool.js";
 import {
+  ensureZkaliAllinGw,
+  handleZkaliAllinRequest,
+  stopZkaliAllinGw,
+} from "./zkaliAllinGw.js";
+import {
   loadCliMcpFromUserDirectory,
   migrateLegacyCommonMcp,
   saveCliMcpToUserDirectory,
@@ -1040,6 +1045,7 @@ const webRemoteControlManager = createWebRemoteControlManager({
     },
     migrateLegacyCommonMcp: (payload) => migrateLegacyCommonMcp(payload),
     zkaliOpencodeZenPoolRequest: (payload) => handleZkaliOpencodeZenPoolRequest(payload),
+    zkaliAllinRequest: (payload) => handleZkaliAllinRequest(payload),
   },
   reconnectWorkspace: reconnectWebRemoteControlWorkspaceInRenderer,
   runRendererAction: runWebRemoteControlActionInRenderer,
@@ -1264,8 +1270,9 @@ async function prepareAppQuit(reason: string, kind: AppShutdownKind = "normal"):
   stopDesktopZCodeDataSizeTelemetry();
   stopDesktopNetworkTelemetry();
   stopRemoteUsageArmsPeriodicSampling();
-  // OpenCodeZen 号池子进程随应用退出回收；CLI 拉起的独立实例不受影响。
+  // OpenCodeZen 号池 / Allin 网关子进程随应用退出回收；CLI 拉起的独立实例不受影响。
   stopZkaliOpencodeZenPool();
+  stopZkaliAllinGw();
   disposeRendererActionTraceIpc?.();
   disposeRendererActionTraceIpc = undefined;
   notifyStabilityAppExit(
@@ -2380,6 +2387,8 @@ app.whenReady().then(async () => {
   // zkali OpenCodeZen 免费号池：enabled 时在后台拉起网关进程（已在跑则复用）。
   // admin/v1 走 zcode:zkali-opencodezen-pool-request IPC 由主进程代理，adminKey 不进 renderer。
   void ensureZkaliOpencodeZenPool(logger);
+  // zkali Allin 聚合网关：同上（zcode:zkali-allin-request IPC，authKey 不进 renderer）。
+  void ensureZkaliAllinGw(logger);
   registerPlatformIpcHandlers({
     fetchHelpConfig: readHelpConfig,
     logger,

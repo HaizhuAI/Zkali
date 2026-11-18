@@ -433,6 +433,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       "scripts/zkali-toolbox.mjs",
       "scripts/zkali-bootscope.mjs",
       "scripts/zkali-opencodezen-pool.mjs",
+      "scripts/zkali-allin-gw.mjs",
     ],
     rootCandidates: [
       "packages/zkali-plugin",

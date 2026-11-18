@@ -11,6 +11,8 @@ import type {
   CreateTempTextAttachmentResult,
   ZkaliOpencodeZenPoolBridgeRequest,
   ZkaliOpencodeZenPoolBridgeResponse,
+  ZkaliAllinBridgeRequest,
+  ZkaliAllinBridgeResponse,
 } from "./platform.js";
 
 import type {
@@ -339,6 +341,7 @@ export interface WebRemoteControlPlatformMethodArgsMap {
   saveMcpToUserDirectory: SaveCliMcpToUserDirectoryRequest;
   migrateLegacyCommonMcp: MigrateLegacyCommonMcpRequest | undefined;
   zkaliOpencodeZenPoolRequest: ZkaliOpencodeZenPoolBridgeRequest;
+  zkaliAllinRequest: ZkaliAllinBridgeRequest;
 }
 
 export interface WebRemoteControlPlatformMethodResultMap {
@@ -351,6 +354,7 @@ export interface WebRemoteControlPlatformMethodResultMap {
   saveMcpToUserDirectory: { success: boolean; error?: string };
   migrateLegacyCommonMcp: MigrateLegacyCommonMcpResult;
   zkaliOpencodeZenPoolRequest: ZkaliOpencodeZenPoolBridgeResponse;
+  zkaliAllinRequest: ZkaliAllinBridgeResponse;
 }
 
 export type WebRemoteControlPlatformMethod = keyof WebRemoteControlPlatformMethodResultMap;

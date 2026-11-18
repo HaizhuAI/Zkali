@@ -17,6 +17,7 @@ import {
   Blocks,
   Globe2,
   Cable,
+  Network,
   WandSparkles,
   HardDrive,
   Keyboard,
@@ -83,6 +84,13 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     id: "opencodezenPool",
     icon: Cable,
     titleId: "settings.opencodezenPool.title",
+    groupId: "basics",
+  },
+  // Allin 聚合网关：21+ 供应商账号/登录授权/代理池/分组路由，本机回环网关。
+  {
+    id: "allinGw",
+    icon: Network,
+    titleId: "settings.allinGw.title",
     groupId: "basics",
   },
   // 个性化（用户自定义指令）是 Agent 能力组的第一项：编辑 ~/.zcode/AGENTS.md，
@@ -267,6 +275,7 @@ const DESKTOP_ONLY_SETTINGS_SECTIONS = new Set<SettingsSectionId>([
   "remoteDevices",
   "dataSync",
   "opencodezenPool",
+  "allinGw",
 ]);
 
 export function isSettingsSectionAvailable(

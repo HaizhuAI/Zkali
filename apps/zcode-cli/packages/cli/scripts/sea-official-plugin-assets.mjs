@@ -255,6 +255,7 @@ export const officialSeaPlugins = [
       "scripts/zkali-toolbox.mjs",
       "scripts/zkali-bootscope.mjs",
       "scripts/zkali-opencodezen-pool.mjs",
+      "scripts/zkali-allin-gw.mjs",
     ],
     rootPath: join("packages", "zkali-plugin"),
     version: "1.0.0",

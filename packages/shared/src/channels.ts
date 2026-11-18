@@ -528,6 +528,8 @@ export const PlatformChannels = {
   GetDeviceId: "zcode:get-device-id",
   /** Renderer → Main：zkali OpenCodeZen 号池 admin/v1 请求代理（adminKey 不出主进程） */
   ZkaliOpencodeZenPoolRequest: "zcode:zkali-opencodezen-pool-request",
+  /** Renderer → Main：zkali Allin 聚合网关 admin/v1 请求代理（authKey 不出主进程） */
+  ZkaliAllinRequest: "zcode:zkali-allin-request",
 } as const;
 
 export type PlatformChannelName = (typeof PlatformChannels)[keyof typeof PlatformChannels];

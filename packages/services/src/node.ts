@@ -498,6 +498,7 @@ import { createProviderProvisioningTarget } from "./model-provider/providerProvi
 import { IProviderProvisioningTargetService } from "./model-provider/providerProvisioning.js";
 import { buildOffPeakModelSelectionView } from "./model-provider/offPeakModelSelectionView.js";
 import { seedZkaliOpencodeZenProvider, watchZkaliOpencodeZenPool } from "./model-provider/zkaliOpencodeZenSeed.js";
+import { seedZkaliAllinProvider, watchZkaliAllinGw } from "./model-provider/zkaliAllinSeed.js";
 import { resolveClientConfigPlatform } from "./runtime-tools/clientPlatform.js";
 import {
   createAccountRequestAuthService,
@@ -3073,6 +3074,23 @@ export function createLocalServices(options: {
         log.warn("OpenCodeZen 号池 Provider 注册失败", { error: String(error) });
       });
       watchZkaliOpencodeZenPool({
+        configService: providerRuntime.configService,
+        logger: {
+          info: (msg, meta) => log.info(msg, meta),
+          warn: (msg, meta) => log.warn(msg, meta),
+        },
+      });
+      // zkali Allin 聚合网关：同号池机制，注册「Allin 聚合网关」Provider。
+      void seedZkaliAllinProvider({
+        configService: providerRuntime.configService,
+        logger: {
+          info: (msg, meta) => log.info(msg, meta),
+          warn: (msg, meta) => log.warn(msg, meta),
+        },
+      }).catch((error: unknown) => {
+        log.warn("Allin 网关 Provider 注册失败", { error: String(error) });
+      });
+      watchZkaliAllinGw({
         configService: providerRuntime.configService,
         logger: {
           info: (msg, meta) => log.info(msg, meta),

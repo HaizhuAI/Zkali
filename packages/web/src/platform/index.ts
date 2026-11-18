@@ -241,5 +241,10 @@ export function createWebPlatform(options?: {
       platformProxy
         ? platformProxy.requestPlatformMethod("zkaliOpencodeZenPoolRequest", payload)
         : Promise.resolve({ status: 0, running: false, error: "desktop-only" }),
+    // Allin 网关与号池同理：只存在于被控桌面本机。
+    zkaliAllinRequest: (payload) =>
+      platformProxy
+        ? platformProxy.requestPlatformMethod("zkaliAllinRequest", payload)
+        : Promise.resolve({ status: 0, running: false, error: "desktop-only" }),
   };
 }
