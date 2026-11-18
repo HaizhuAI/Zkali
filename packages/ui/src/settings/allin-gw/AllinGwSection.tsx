@@ -28,6 +28,8 @@ interface GwProvider {
   models?: string[];
   keyProvider?: boolean;
   placeholder?: boolean;
+  extractHosts?: string[];
+  authParams?: { site?: string[] } | null;
   accounts?: GwAccount[];
   keys?: string[];
 }
@@ -51,8 +53,13 @@ interface AuthFlowInfo {
   flowId: string;
   kind?: string;
   authorizeUrl?: string;
+  url?: string;
   userCode?: string;
   instructions?: string;
+  extractHosts?: string[];
+  extract?: string | null;
+  provider?: string;
+  providerName?: string;
   manualHint?: boolean;
   status?: string;
   error?: string;
@@ -73,6 +80,7 @@ export function AllinGwSection({ isDesktop }: { isDesktop: boolean }) {
   const [flow, setFlow] = useState<AuthFlowInfo | null>(null);
   const [flowCode, setFlowCode] = useState("");
   const [flowPhone, setFlowPhone] = useState("");
+  const [zcodeSite, setZcodeSite] = useState<"zai" | "bigmodel">("zai");
   const [tokenText, setTokenText] = useState("");
   const [keysText, setKeysText] = useState("");
   const [proxyImportText, setProxyImportText] = useState("");
@@ -123,21 +131,27 @@ export function AllinGwSection({ isDesktop }: { isDesktop: boolean }) {
     return () => clearInterval(timer);
   }, [refresh]);
 
-  // 授权流轮询：device-poll 类流程自动续轮直到 done/failed
+  // 授权流轮询：device-poll/loopback/webview 三类自动续轮直到 done/failed/404
   useEffect(() => {
     if (flowTimer.current) clearInterval(flowTimer.current);
     flowTimer.current = null;
-    if (!flow?.flowId || flow.kind !== "device-poll" || flow.status === "done" || flow.status === "failed") return;
+    const polls = flow?.kind === "device-poll" || flow?.kind === "loopback" || flow?.kind === "webview";
+    if (!flow?.flowId || !polls || flow.status === "done" || flow.status === "failed") return;
     flowTimer.current = setInterval(async () => {
       const res = await request("POST", "/admin/auth/poll", { flowId: flow.flowId });
-      if (!res.ok) return;
+      if (!res.ok) {
+        // flow 消失（过期/已被账号注册联动收尾）→ 结束展示并刷新账号列表
+        setFlow(null);
+        void refresh();
+        return;
+      }
       const body = res.body as AuthFlowInfo & { account?: { id?: string } };
       if (body.status === "done") {
         setFlow(null);
         setActionNotice(t("settings.allinGw.authDone"));
         void refresh();
-      } else if (body.status === "failed") {
-        setFlow((prev) => (prev ? { ...prev, status: "failed", error: body.error } : prev));
+      } else if (["failed", "expired", "closed", "duplicate"].includes(String(body.status))) {
+        setFlow((prev) => (prev ? { ...prev, status: "failed", error: body.error ?? String(body.status) } : prev));
       }
     }, 2500);
     return () => {
@@ -187,16 +201,48 @@ export function AllinGwSection({ isDesktop }: { isDesktop: boolean }) {
     void act(`auth:${pid}`, async () => {
       setFlow(null);
       setFlowCode("");
+      const prov = state?.providers?.[pid];
       const body: Record<string, unknown> = { provider: pid };
       if (pid === "loomy") body.phone = flowPhone;
+      if (prov?.authParams?.site?.length) body.site = zcodeSite;
       const res = await request("POST", "/admin/auth/start", body);
-      if (res.ok) {
-        const info = res.body as AuthFlowInfo;
-        setFlow({ ...info });
-      } else {
+      if (!res.ok) {
         setActionNotice(res.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      const info = res.body as AuthFlowInfo;
+      const openUrl = info.authorizeUrl || info.url;
+      setFlow({ ...info, provider: pid, providerName: prov?.name });
+      // 一键授权：loopback/device-poll → 系统浏览器；webview → 主进程登录窗
+      if (openUrl && (info.kind === "loopback" || info.kind === "device-poll")) {
+        platform.openExternal(openUrl);
+      } else if (openUrl && info.kind === "webview") {
+        if (platform.zkaliAllinLogin) {
+          void platform
+            .zkaliAllinLogin({
+              provider: pid,
+              url: openUrl,
+              extractHosts: info.extractHosts ?? prov?.extractHosts ?? [],
+              extract: info.extract === "deepseek" ? "deepseek" : "generic",
+              label: prov?.name ?? pid,
+            })
+            .then((out) => {
+              if (!out.ok && out.error && out.error !== "closed") {
+                setFlow((prev) => (prev ? { ...prev, status: "failed", error: out.error } : prev));
+              }
+            });
+        } else {
+          platform.openExternal(openUrl); // 无登录窗能力时降级浏览器（手动凭据兜底）
+        }
       }
     });
+
+  const cancelAuth = () => {
+    const fid = flow?.flowId;
+    setFlow(null);
+    setFlowCode("");
+    if (fid) void request("POST", "/admin/auth/cancel", { flowId: fid });
+  };
 
   const submitCode = () =>
     void act("auth-code", async () => {
@@ -290,27 +336,44 @@ export function AllinGwSection({ isDesktop }: { isDesktop: boolean }) {
                 ) : null}
               </div>
             ) : null}
-            {flow.kind === "code-paste" && flow.status !== "failed" ? (
-              <div className="mt-2 flex items-center gap-2">
-                <input
-                  className="h-8 w-full rounded-md border border-border bg-surface px-2 font-mono text-ui-sm text-foreground placeholder:text-foreground-faint"
-                  placeholder={t("settings.allinGw.authCodePlaceholder")}
-                  value={flowCode}
-                  onChange={(e) => setFlowCode(e.target.value)}
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={busy !== null || !flowCode.trim()}
-                  onClick={submitCode}
-                >
-                  {busy === "auth-code" ? "…" : t("settings.allinGw.authSubmit")}
-                </Button>
+            {(flow.kind === "code-paste" || flow.kind === "loopback") && flow.status !== "failed" ? (
+              <div className="mt-2">
+                {flow.kind === "loopback" ? (
+                  <div className="mb-1 text-ui-sm text-foreground-faint">
+                    {t("settings.allinGw.authManualCodeHint")}
+                  </div>
+                ) : null}
+                <div className="flex items-center gap-2">
+                  <input
+                    className="h-8 w-full rounded-md border border-border bg-surface px-2 font-mono text-ui-sm text-foreground placeholder:text-foreground-faint"
+                    placeholder={t("settings.allinGw.authCodePlaceholder")}
+                    value={flowCode}
+                    onChange={(e) => setFlowCode(e.target.value)}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy !== null || !flowCode.trim()}
+                    onClick={submitCode}
+                  >
+                    {busy === "auth-code" ? "…" : t("settings.allinGw.authSubmit")}
+                  </Button>
+                </div>
               </div>
             ) : null}
             {flow.kind === "device-poll" && flow.status !== "failed" ? (
               <div className="mt-2 text-ui-sm text-foreground-subtle">
                 {t("settings.allinGw.authPolling")}
+              </div>
+            ) : null}
+            {flow.kind === "loopback" && flow.status !== "failed" ? (
+              <div className="mt-2 text-ui-sm text-foreground-subtle">
+                {t("settings.allinGw.authOpenedBrowser")}
+              </div>
+            ) : null}
+            {flow.kind === "webview" && flow.status !== "failed" ? (
+              <div className="mt-2 text-ui-sm text-foreground-subtle">
+                {t("settings.allinGw.authWebviewWaiting")}
               </div>
             ) : null}
             {flow.status === "failed" ? (
@@ -319,7 +382,7 @@ export function AllinGwSection({ isDesktop }: { isDesktop: boolean }) {
               </div>
             ) : null}
             <div className="mt-2">
-              <Button variant="outline" size="sm" onClick={() => setFlow(null)}>
+              <Button variant="outline" size="sm" onClick={cancelAuth}>
                 {t("settings.allinGw.authCancel")}
               </Button>
             </div>
@@ -375,7 +438,9 @@ export function AllinGwSection({ isDesktop }: { isDesktop: boolean }) {
 
               {isOpen ? (
                 <div className="border-t border-border px-4 py-3">
-                  {/* 登录/授权入口 */}
+                  {/* 登录/授权入口：只有真实授权流（webview/device-poll/loopback/code-paste）
+                      才显示一键按钮；key/manual-token 供应商用下方凭据输入 */}
+                  {p.authFlow !== "key" && p.authFlow !== "manual-token" ? (
                   <div className="mb-3 flex flex-wrap items-center gap-2">
                     {p.authFlow === "loomy-phone" ? (
                       <>
@@ -395,19 +460,35 @@ export function AllinGwSection({ isDesktop }: { isDesktop: boolean }) {
                         </Button>
                       </>
                     ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={busy !== null}
-                        onClick={() => startAuth(pid)}
-                      >
-                        {busy === `auth:${pid}` ? "…" : t("settings.allinGw.login")}
-                      </Button>
+                      <>
+                        {p.authParams?.site?.length ? (
+                          <select
+                            className="h-8 rounded-md border border-border bg-surface px-2 text-ui-sm text-foreground"
+                            value={zcodeSite}
+                            onChange={(e) => setZcodeSite(e.target.value === "bigmodel" ? "bigmodel" : "zai")}
+                          >
+                            {p.authParams.site.map((s) => (
+                              <option key={s} value={s}>
+                                {s === "bigmodel" ? "BigModel" : "Z.ai"}
+                              </option>
+                            ))}
+                          </select>
+                        ) : null}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busy !== null}
+                          onClick={() => startAuth(pid)}
+                        >
+                          {busy === `auth:${pid}` ? "…" : t("settings.allinGw.login")}
+                        </Button>
+                      </>
                     )}
                     {p.loginUrl ? (
                       <span className="text-ui-sm text-foreground-faint">{p.loginUrl}</span>
                     ) : null}
                   </div>
+                  ) : null}
 
                   {/* 手动 token / key 导入（所有供应商都可直接粘凭据；key 供应商走 keys 池） */}
                   {p.keyProvider ? (
