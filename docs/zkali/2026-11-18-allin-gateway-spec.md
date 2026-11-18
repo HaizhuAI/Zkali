@@ -59,17 +59,40 @@ services zkaliAllinSeed.ts ── host bootstrap 时读取 state 文件，
 
 ## 4. 鉴权流引擎
 
-`/admin/auth/start|poll|code` 三类：
+`/admin/auth/start|poll|code|cancel` 四类端点 + `FLOWS` 内存表（TTL 15min）。
+所有 flow 终态经 `finishFlow` 统一收尾（移出表 + `cleanupFlow` 释放回环监听）。
 
-- **device-poll**：start 返回 {flowId, authorizeUrl, userCode}；poll 间隔轮询至
-  done/failed（copilot/cline/minimax/qoder/zcode/catpaw）。
-- **code-paste**：start 返回 {flowId, authorizeUrl, instructions}；用户回贴
-  code/回调 URL → code() 换 token（codex/antigravity/raccoon/trae/workbuddy/loomy）。
+- **device-poll**：start 返回 {flowId, authorizeUrl/url, userCode?, intervalMs?}；
+  桌面经 `platform.openExternal` 一键打开系统浏览器，poll 轮询至 done/failed
+  （github-copilot/cline/minimax/qoder/zcode/catpaw/workbuddy-scan）。
+- **loopback**：start 前网关开临时回环监听（`release` 句柄挂 flow.data），
+  authorizeUrl 内含 `auth_callback_url`/`redirect` 指回 127.0.0.1 临时端口；
+  系统浏览器完成授权后重定向回环 → onHit 自动换 token + 注册账号 +
+  `f.result` 暂存终态 → 下一次 poll 出队返回。callback 页本身返回
+  成功/失败 HTML（codex :1455、antigravity :1456/oauth-callback、
+  raccoon/trae 临时端口）。`/admin/auth/code` 保留为手动贴 code 兜底。
+- **webview**：start 返回 {flowId, authorizeUrl, extractHosts, extract}；
+  桌面主进程开独立登录窗（新 session partition，cookie/LS/SS 提取），
+  拿到凭据后主进程直接 POST /admin/accounts（authKey 不出 main），
+  该供应商进行中的 webview flow 被标记 done → renderer 轮询收尾。
+  deepseek_web 用专用提取（localStorage.userToken.value），其余走
+  通用 token 名 + JWT 形态扫描。
+- **code-paste**：loomy-phone（手机号 → 验证码 → code()）。
 - **手动**：`/admin/accounts` 直贴凭据（任意供应商）；`/admin/keys` 批量 key 池
   （keyProvider 供应商）。
 
+ZCode 双站点契约（site=zai|bigmodel）：init `POST /api/v1/oauth/cli/init`
+body `{provider:site}`，头 `Authorization: Bearer <64hex>` + `X-Device-Mid: <uuid>`
++ `User-Agent: ZCode/3.17.2`；返回 `flow_id`/`authorize_url`/`poll_interval_sec`/
+`expires_at`。authorize_url 的 `redirect_uri`(zai)/`redirect`(bigmodel) 参数改写为
+encode 一次的中转页 `zcode.z.ai/app/oauth/login?redirect=zcode%3A%2F%2Foauth%2Fcallback`
+。poll `GET .../cli/poll/<flowId>` 同头组；`status=ready` 时 `data[site].access_token`
+→ bizAuth（zai: `/api/auth/z/login`；bigmodel: token 原样）→ org → project →
+`api_keys` 铸造 `id.secret`（找不到则创建+`/copy/<id>` 取 secretKey）。
+
 凭据统一入 `registerAccount(pid,{label,type,access,fields,proxy})`，敏感字段
 经 `maskSensitive`/`redactSecret`/`redactProxyUrl` 后才出 admin API。
+`/admin/accounts` POST 成功后联动：同供应商进行中的 webview flow 置 done。
 
 ## 5. 账号池、代理与路由
 

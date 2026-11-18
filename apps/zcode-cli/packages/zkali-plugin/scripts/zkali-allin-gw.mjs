@@ -45,9 +45,9 @@ const PROVIDERS = {
   zcode:        { name: "ZCode/智谱 GLM",  lane: "openai", baseUrl: "https://open.bigmodel.cn/api/coding/paas/v4",
                   ua: "zcode", authScheme: "bearer", keyProvider: true,
                   models: ["glm-4.5","glm-4.5-air","glm-4.6","glm-4.7","glm-5","glm-5-turbo","glm-5.1","glm-5.2","glm-5.3","glm-5.3-flash","glm-5.3-flashx"],
-                  loginUrl: "https://zcode.z.ai", authFlow: "zcode-cli" },
+                  loginUrl: "https://zcode.z.ai", authFlow: "zcode-cli", authParams: { site: ["zai", "bigmodel"] } },
   workbuddy:    { name: "腾讯免Key订阅池",  lane: "workbuddy", baseUrl: "https://copilot.tencent.com/v1",
-                  authScheme: "bearer", authFlow: "workbuddy", loginUrl: "https://copilot.tencent.com",
+                  authScheme: "bearer", authFlow: "workbuddy-scan", loginUrl: "https://copilot.tencent.com",
                   quirks: { "User-Agent": "WorkBuddy/5.9.3 CLI/2.165.0", "X-Requested-With": "XMLHttpRequest",
                             "X-Product": "SaaS", "X-Agent-Intent": "craft", "X-Agent-Purpose": "conversation",
                             "X-Agent-Type": "main", "X-Auth-Refresh-Source": "workbuddy" },
@@ -55,7 +55,7 @@ const PROVIDERS = {
                            "GLM-5.1","GLM-5.2","GLM-5.3","glm-5.3-flash","glm-5.3-flashx",
                            "MiniMax-M3","Kimi-K3","kimi-k2-0905-preview","step-3.5-flash","step-3.5","MiMo-V2.6-Flash"] },
   "workbuddy-ai": { name: "WorkBuddy 国际版", lane: "workbuddy-ai", baseUrl: "https://www.workbuddy.ai/v2",
-                  authScheme: "workbuddy-ai", authFlow: "workbuddy", loginUrl: "https://www.workbuddy.ai",
+                  authScheme: "workbuddy-ai", authFlow: "webview", loginUrl: "https://www.workbuddy.ai/profile/keys", extractHosts: ["www.workbuddy.ai"],
                   quirks: { "User-Agent": "WorkBuddy-AI/5.9.3 CLI/2.165.0", "X-Requested-With": "XMLHttpRequest",
                             "X-Product": "SaaS", "X-Auth-Refresh-Source": "workbuddy-ai" },
                   models: ["auto","hy4-preview","DeepSeek-V4-Flash","DeepSeek-V4-Pro","GLM-5.3","glm-5.3-flash","MiniMax-M3","Kimi-K3","step-3.5"] },
@@ -67,27 +67,33 @@ const PROVIDERS = {
                   models: ["longcat-2.0","glm-5.3-flashx","glm-5.3-flash","glm-5.3","deepseek-v4-flash","deepseek-v4-pro","minimax-m3","kimi-k3","auto"],
                   modelTypes: { "longcat-2.0":77,"glm-5.3-flashx":98,"glm-5.3-flash":91,"glm-5.3":89,"deepseek-v4-flash":63,"deepseek-v4-pro":64,"minimax-m3":70,"kimi-k3":83,"auto":0 } },
   deepseek_web: { name: "DeepSeek 网页",    lane: "deepseek-web", baseUrl: "https://chat.deepseek.com",
-                  authScheme: "bearer", authFlow: "manual-token", loginUrl: "https://chat.deepseek.com",
+                  authScheme: "bearer", authFlow: "webview", loginUrl: "https://chat.deepseek.com/sign_in", extract: "deepseek", extractHosts: ["chat.deepseek.com"],
                   models: ["deepseek-chat","deepseek-reasoner"] },
   agentmore:    { name: "AgentMore",        lane: "openai", baseUrl: "https://agentmore.chatglm.cn/api/v1",
-                  authScheme: "bearer", keyProvider: true, placeholder: true, models: ["glm-4.6","glm-4.5"] },
+                  authScheme: "bearer", keyProvider: true, placeholder: true, models: ["glm-4.6","glm-4.5"],
+                  authFlow: "webview", loginUrl: "https://agentmore.chatglm.cn/", extractHosts: ["agentmore.chatglm.cn"] },
   wenxin_web:   { name: "文心网页",          lane: "openai", baseUrl: "https://chat.baidu.com/aichat/api/conversation",
-                  authScheme: "bearer", keyProvider: true, placeholder: true, models: ["ernie-5"] },
+                  authScheme: "bearer", keyProvider: true, placeholder: true, models: ["ernie-5"],
+                  authFlow: "webview", loginUrl: "https://wappass.baidu.com/passport/?login&u=https%3A%2F%2Fwenxin.baidu.com%2F", extractHosts: ["wenxin.baidu.com", "wappass.baidu.com"] },
   meoo:         { name: "Meoo",             lane: "openai", baseUrl: "https://meoo.com/api/v1",
-                  authScheme: "bearer", keyProvider: true, placeholder: true, models: ["meoo-1"] },
+                  authScheme: "bearer", keyProvider: true, placeholder: true, models: ["meoo-1"],
+                  authFlow: "webview", loginUrl: "https://meoo.com", extractHosts: ["meoo.com", "www.meoo.com"] },
   raccoon:      { name: "小浣熊",            lane: "raccoon", baseUrl: "https://xiaohuanxiong.com/api/web/llm/v2",
                   authScheme: "bearer", authFlow: "raccoon", loginUrl: "https://xiaohuanxiong.com",
                   quirks: { "Accept": "text/event-stream, application/json" },
                   models: ["sn-glm-5-3","sn-deepseek-v4-flash","sn-deepseek-v4-pro","sn-kimi-k3","sn-minimax-m3"] },
   runable:      { name: "Runable",          lane: "openai", baseUrl: "https://api.runable.com/v1",
-                  authScheme: "bearer", keyProvider: true, placeholder: true, models: ["runable-1"] },
+                  authScheme: "bearer", keyProvider: true, placeholder: true, models: ["runable-1"],
+                  authFlow: "webview", loginUrl: "https://runable.com", extractHosts: ["runable.com", "www.runable.com"] },
   dangbei:      { name: "当贝",              lane: "openai", baseUrl: "https://ai.dangbei.com/api/v1",
-                  authScheme: "bearer", keyProvider: true, placeholder: true, models: ["dangbei-1"] },
+                  authScheme: "bearer", keyProvider: true, placeholder: true, models: ["dangbei-1"],
+                  authFlow: "webview", loginUrl: "https://ai.dangbei.com/chat", extractHosts: ["ai.dangbei.com", "dangbei.com"] },
   loomy:        { name: "讯飞 Loomy",        lane: "loomy",  baseUrl: "https://loomyad.xunfei.cn/api/v1",
                   authScheme: "bearer", authFlow: "loomy-phone", loginUrl: "https://loomy.xunfei.cn",
                   models: ["spark-x1","spark-v4","auto"] },
   tabbit:       { name: "极速免费模型池",     lane: "openai", baseUrl: "https://api.tabbit.ai/v1",
-                  authScheme: "bearer", keyProvider: true, models: ["auto","glm-5.3","deepseek-v4-flash","kimi-k3","minimax-m3"] },
+                  authScheme: "bearer", keyProvider: true, models: ["auto","glm-5.3","deepseek-v4-flash","kimi-k3","minimax-m3"],
+                  authFlow: "webview", loginUrl: "https://tabbit.ai", extractHosts: ["tabbit.ai", "www.tabbit.ai"] },
   deepseek:     { name: "DeepSeek 官方",     lane: "openai", baseUrl: "https://api.deepseek.com/v1",
                   authScheme: "bearer", keyProvider: true, models: ["deepseek-chat","deepseek-reasoner"], ctx: 64000 },
   siliconflow:  { name: "SiliconFlow",      lane: "openai", baseUrl: "https://api.siliconflow.cn/v1",
@@ -1221,7 +1227,7 @@ const FLOW_TTL_MS = 15 * 60_000;
 
 function pruneFlows() {
   const t = now();
-  for (const [id, f] of FLOWS) if (f.deadline < t) FLOWS.delete(id);
+  for (const [id, f] of FLOWS) if (f.deadline < t) { FLOWS.delete(id); cleanupFlow(f); }
 }
 
 function pkce() {
@@ -1236,6 +1242,79 @@ function newFlow(provider, kind, data = {}) {
   const f = { id, provider, kind, data, deadline: now() + FLOW_TTL_MS, status: "pending" };
   FLOWS.set(id, f);
   return f;
+}
+
+// ---------------------------------------------------------------------------
+// OAuth 回环监听器（APK LoginActivity 的本地 ServerSocket 移植）
+//   每个需要 redirect 的流在 127.0.0.1 上监听一个端口，浏览器授权完成后
+//   供应商跳回 <port>/<path>?code=...，网关直接交换凭据并入池，
+//   前端只需轮询 /admin/auth/poll —— 不需要手动粘贴 code。
+// ---------------------------------------------------------------------------
+
+/** 回环响应页：给浏览器看的"授权完成可关闭"提示。 */
+function loopbackPage(title, detail, ok = true) {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>
+<style>body{background:#0b0e14;color:#e5e7eb;font-family:-apple-system,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
+.card{text-align:center;max-width:420px;padding:32px}h2{color:${ok ? "#6ee7b7" : "#fbbf24"};margin:0 0 12px}p{color:#9ca3af;line-height:1.7;font-size:14px}</style></head>
+<body><div class="card"><h2>${title}</h2><p>${detail}</p><p style="color:#6b7280;font-size:12px">可以关闭本页，回到 zkali 查看账号状态。</p></div></body></html>`;
+}
+
+/**
+ * 在 127.0.0.1 上为某个 flow 起一个回环监听。
+ * port=0 → 系统分配临时端口（trae/raccoon）；固定端口（codex 1455 / antigravity 1456）
+ * 被占用时直接报错（与 APK 行为一致：提示端口被占用）。
+ * onHit(url) 返回 {status, error}；返回 null 表示该路径不归本流。
+ */
+function listenLoopback(f, { port = 0, path, onHit }) {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer(async (req, res) => {
+      try {
+        const u = new URL(req.url, `http://127.0.0.1:${server.address()?.port || port}`);
+        if (u.pathname !== path) {
+          res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+          res.end("not found");
+          return;
+        }
+        f.status = "binding"; // 已收到回调：登录完成，正在绑定设备
+        const out = await onHit(u) || {};
+        const ok = out.status === "done";
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+        res.end(loopbackPage(ok ? "授权成功" : "授权未完成",
+          ok ? "账号已自动加入 Allin 网关池。" : (out.error || "请回到应用重试。"), ok));
+      } catch (e) {
+        try {
+          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+          res.end(loopbackPage("授权异常", String(e.message || e).slice(0, 200), false));
+        } catch {}
+      }
+    });
+    server.once("error", (e) => reject(new Error(`回环端口 ${port === 0 ? "(自动)" : port} 监听失败: ${e.message}`)));
+    server.listen(port, "127.0.0.1", () => {
+      const actual = server.address().port;
+      f.data.loopbackPort = actual;
+      f.data.release = () => { try { server.close(); } catch {} };
+      resolve(actual);
+    });
+  });
+}
+
+/** flow 结束/取消/过期时释放回环监听。 */
+function cleanupFlow(f) {
+  try { f.data?.release?.(); } catch {}
+}
+
+/** 终态收尾：移出 FLOWS + 释放回环监听，返回原结果。 */
+function finishFlow(f, result) {
+  FLOWS.delete(f.id);
+  cleanupFlow(f);
+  return result;
+}
+
+/** loopback/webview 类流的统一轮询：回调已把结果写进 f.result 即出队返回。 */
+function loopbackPoll(f) {
+  if (f.result) return finishFlow(f, f.result);
+  if (f.status === "binding") return { status: "binding" };
+  return { status: "pending" };
 }
 
 function registerAccount(pid, acc) {
@@ -1361,54 +1440,78 @@ const FLOW_DEFS = {
     },
   },
 
-  // ZCode CLI —— init + poll
+  // ZCode CLI —— init + poll + 业务 key 铸造（对齐 ZCodeAuth.start/poll/signedIn）
   "zcode-cli": {
-    async start() {
-      const pollAuth = `Bearer ${crypto.randomBytes(16).toString("hex")}`;
-      const device = { platform: process.platform, arch: process.arch, source: "zkali-allin" };
+    async start(input) {
+      const site = input?.site === "bigmodel" ? "bigmodel" : "zai";
+      const pollAuth = `Bearer ${crypto.randomBytes(32).toString("hex")}`; // hex(32) → 64 chars，APK-trouw
+      const device = crypto.randomUUID();
       const r = await jsonApi("https://zcode.z.ai/api/v1/oauth/cli/init", {
-        method: "POST", headers: { "content-type": "application/json", accept: "application/json", authorization: pollAuth },
-        body: JSON.stringify({ device }),
+        method: "POST", headers: { "content-type": "application/json", accept: "application/json", authorization: pollAuth, "x-device-mid": device, "user-agent": "ZCode/3.17.2" },
+        body: JSON.stringify({ provider: site }), timeoutMs: 20_000,
       });
       const d = r.data?.data || r.data || {};
-      const authorizeUrl = d.authorize_url || d.authorizeUrl || d.url;
-      if (!authorizeUrl) throw new Error(`zcode cli init failed (${r.status}): ${(r.text || "").slice(0, 160)}`);
-      const f = newFlow("zcode", "device-poll", { pollAuth, interval: (d.poll_interval_sec || 3) * 1000, lastPoll: 0, initData: d });
-      return { flowId: f.id, kind: f.kind, authorizeUrl, instructions: "打开授权链接登录 ZCode 账号" };
+      const upstreamId = d.flow_id || "", authorizeUrl = d.authorize_url || "";
+      if (!upstreamId || !authorizeUrl.startsWith("https://")) {
+        throw new Error(`zcode init failed (${r.status}): ${(r.text || "").slice(0, 160)}`);
+      }
+      // APK 会把 redirect(_uri) 重写回 zcode://oauth/callback 中转页
+      const back = `https://zcode.z.ai/app/oauth/login?redirect=${encodeURIComponent("zcode://oauth/callback")}&app_version=3.17.2`;
+      const u = new URL(authorizeUrl);
+      u.searchParams.set(site === "bigmodel" ? "redirect" : "redirect_uri", back);
+      const f = newFlow("zcode", "device-poll", {
+        pollAuth, device, site, upstreamId,
+        interval: Math.max(d.poll_interval_sec || 2, 1) * 1000, lastPoll: 0 });
+      if (d.expires_at > 0) f.deadline = Math.min(f.deadline, d.expires_at * 1000);
+      return { flowId: f.id, kind: f.kind, authorizeUrl: u.toString(),
+        instructions: "请在打开的页面登录 ZCode 账号，成功后自动入池" };
     },
     async poll(f) {
       if (now() - f.data.lastPoll < f.data.interval) return { status: "pending" };
       f.data.lastPoll = now();
-      const r = await jsonApi("https://zcode.z.ai/api/v1/oauth/cli/poll", {
-        method: "POST", headers: { "content-type": "application/json", accept: "application/json", authorization: f.data.pollAuth },
-        body: "{}",
+      const r = await jsonApi(`https://zcode.z.ai/api/v1/oauth/cli/poll/${encodeURIComponent(f.data.upstreamId)}`, {
+        headers: { authorization: f.data.pollAuth, accept: "application/json", "x-device-mid": f.data.device, "user-agent": "ZCode/3.17.2" }, timeoutMs: 20_000,
       });
       const d = r.data?.data || r.data || {};
-      if (d.status === "pending" || r.status === 202) return { status: "pending" };
-      const token = d.api_key || d.access_token || d.token;
-      if (!token) {
-        if (r.status === 200) return { status: "pending" };
-        return { status: "failed", error: `poll failed (${r.status}): ${(r.text || "").slice(0, 160)}` };
-      }
-      const acc = registerAccount("zcode", { label: d.user?.email ? `zcode:${d.user.email}` : "zcode", type: "oauth",
-        access: token, fields: { userId: d.user?.id || "", email: d.user?.email || "" } });
-      FLOWS.delete(f.id);
-      return { status: "done", account: maskSensitive(acc) };
+      const status = d.status || "";
+      if (!status || status === "pending") return { status: "pending" };
+      if (status !== "ready") return finishFlow(f, { status: "failed", error: `登录被拒绝（${status}）` });
+      const siteTok = d[f.data.site]?.access_token || d[f.data.site]?.accessToken || "";
+      const jwt = d.token || "";
+      if (!siteTok) return finishFlow(f, { status: "failed", error: "ZCode 没有返回访问令牌" });
+      // signedIn 链：oauth token → bizAuth → 组织/项目 → api_keys 铸造 id.secret；
+      // 失败降级存原始 oauth token（仍可作为 paas 调用的 Bearer）。
+      let access = siteTok, apiKey = "";
+      try { apiKey = await zcodeMintKey(f.data.site, siteTok); if (apiKey) access = apiKey; } catch {}
+      const user = d.user || {};
+      const acc = registerAccount("zcode", {
+        label: user.email ? `zcode:${user.email}` : (user.name || "zcode"), type: "oauth",
+        access, fields: { site: f.data.site, jwt, oauthToken: siteTok, email: user.email || "", name: user.name || "", apiKey } });
+      return finishFlow(f, { status: "done", account: maskSensitive(acc), plan: apiKey ? "api-key" : "oauth-token" });
     },
   },
 
-  // Codex —— OAuth PKCE + 手动粘贴 code
+  // Codex —— OAuth PKCE + localhost:1455 回环自动回收（保留手动粘 code 兜底）
   "codex-oauth": {
     async start() {
       const { verifier, challenge } = pkce();
+      const redirect = "http://localhost:1455/auth/callback";
+      const f = newFlow("codex", "loopback", { verifier, redirect });
+      await listenLoopback(f, { port: 1455, path: "/auth/callback", onHit: async (u) => {
+        const code = u.searchParams.get("code") || "";
+        if (!code) return { status: "failed", error: "回调缺少 code 参数" };
+        f.result = await FLOW_DEFS["codex-oauth"].code(f, code);
+        return f.result;
+      } });
       const url = `https://auth.openai.com/oauth/authorize?response_type=code&client_id=${encodeURIComponent("app_EMoamEEZ73f0CkXaXp7hrann")}`
-        + `&redirect_uri=${encodeURIComponent("http://localhost:1455/auth/callback")}`
+        + `&redirect_uri=${encodeURIComponent(redirect)}`
         + `&scope=${encodeURIComponent("openid profile email offline_access api.connectors.read api.connectors.invoke")}`
         + `&code_challenge=${encodeURIComponent(challenge)}&code_challenge_method=S256`
         + `&id_token_add_organizations=true&codex_cli_simplified_flow=true`;
-      const f = newFlow("codex", "code-paste", { verifier, redirect: "http://localhost:1455/auth/callback" });
-      return { flowId: f.id, kind: f.kind, authorizeUrl: url, instructions: "打开链接登录 ChatGPT，完成后浏览器会跳转 localhost:1455，把地址栏里的 code= 参数粘回来" };
+      return { flowId: f.id, kind: f.kind, authorizeUrl: url,
+        instructions: "在打开的页面完成 ChatGPT 登录；浏览器跳回 localhost:1455 后自动入池（也可把 code 粘回来）" };
     },
+    async poll(f) { return loopbackPoll(f); },
     async code(f, code) {
       const r = await jsonApi("https://auth.openai.com/oauth/token", {
         method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
@@ -1426,23 +1529,30 @@ const FLOW_DEFS = {
       } catch {}
       const acc = registerAccount("codex", { label: email ? `codex:${email}` : "codex", type: "oauth",
         access: d.access_token, fields: { refresh: d.refresh_token || "", accountId, email, sessionId: crypto.randomUUID() } });
-      FLOWS.delete(f.id);
       return { status: "done", account: maskSensitive(acc) };
     },
   },
 
-  // Antigravity —— Google OAuth + 手动粘贴 code
+  // Antigravity —— Google OAuth + localhost:1456 回环自动回收（保留手动粘 code 兜底）
   "antigravity-oauth": {
     async start() {
       const { verifier, challenge } = pkce();
       const redirect = "http://localhost:1456/oauth-callback";
+      const f = newFlow("antigravity", "loopback", { verifier, redirect });
+      await listenLoopback(f, { port: 1456, path: "/oauth-callback", onHit: async (u) => {
+        const code = u.searchParams.get("code") || "";
+        if (!code) return { status: "failed", error: "回调缺少 code 参数" };
+        f.result = await FLOW_DEFS["antigravity-oauth"].code(f, code);
+        return f.result;
+      } });
       const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(ANTIGRAVITY_CLIENT_ID)}`
         + `&redirect_uri=${encodeURIComponent(redirect)}&response_type=code`
         + `&scope=${encodeURIComponent("https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs")}`
         + `&access_type=offline&prompt=consent&code_challenge=${encodeURIComponent(challenge)}&code_challenge_method=S256`;
-      const f = newFlow("antigravity", "code-paste", { verifier, redirect });
-      return { flowId: f.id, kind: f.kind, authorizeUrl: url, instructions: "打开链接登录 Google，完成后浏览器跳转 localhost:1456，把地址栏 code= 参数粘回来" };
+      return { flowId: f.id, kind: f.kind, authorizeUrl: url,
+        instructions: "在打开的页面登录 Google 账号；浏览器跳回 localhost:1456 后自动入池（也可把 code 粘回来）" };
     },
+    async poll(f) { return loopbackPoll(f); },
     async code(f, code) {
       const r = await jsonApi("https://oauth2.googleapis.com/token", {
         method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
@@ -1458,32 +1568,42 @@ const FLOW_DEFS = {
       } catch {}
       const acc = registerAccount("antigravity", { label: email ? `gg:${email}` : "antigravity", type: "oauth",
         access: d.access_token, fields: { refresh: d.refresh_token || "", email, expiresAt: now() + (d.expires_in || 3600) * 1000 } });
-      FLOWS.delete(f.id);
       return { status: "done", account: maskSensitive(acc) };
     },
   },
 
-  // CatPaw —— 登录配置 + sid 轮询
+  // CatPaw —— sid 本地生成 + poll-token 轮询（对齐 CatPawAuth.startLogin/pollToken）
   catpaw: {
     async start() {
       const r = await jsonApi("https://catx.nocode.cn/api/gateway/passport/login-config", { timeoutMs: 10_000 });
       const entry = r.data?.data?.loginEntryUrl || "";
-      const sid = r.data?.data?.sid || r.data?.data?.loginSid || "";
       if (!entry) throw new Error("妙手登录服务未返回登录入口地址");
-      const f = newFlow("catpaw", "device-poll", { sid, interval: 3000, lastPoll: 0 });
-      return { flowId: f.id, kind: f.kind, authorizeUrl: entry, instructions: "打开登录入口完成妙手授权" };
+      // sid/state 由本端生成追加到登录入口（不是上游返回的）
+      const state = crypto.randomBytes(16).toString("hex");
+      const sid = crypto.randomBytes(16).toString("hex");
+      const url = entry + (entry.includes("?") ? "&" : "?")
+        + `state=${state}&sid=${sid}&redirect=${encodeURIComponent("http://127.0.0.1:9/catpaw-callback")}`;
+      const f = newFlow("catpaw", "device-poll", { sid, interval: 2500, lastPoll: 0 });
+      return { flowId: f.id, kind: f.kind, authorizeUrl: url,
+        instructions: "登录妙手账号，完成后会自动入池" };
     },
     async poll(f) {
       if (!f.data.sid) return { status: "failed", error: "missing login sid" };
       if (now() - f.data.lastPoll < f.data.interval) return { status: "pending" };
       f.data.lastPoll = now();
       const r = await jsonApi(`https://catx.nocode.cn/api/gateway/passport/poll-token?sid=${encodeURIComponent(f.data.sid)}`, { timeoutMs: 10_000 });
-      const token = r.data?.data?.token || r.data?.data?.passportToken || "";
-      if (r.status === 200 && !token) return { status: "pending" };
-      if (!token) return { status: r.status >= 400 ? "failed" : "pending", error: `poll (${r.status})` };
-      const acc = registerAccount("catpaw", { label: "catpaw", type: "token", access: token });
-      FLOWS.delete(f.id);
-      return { status: "done", account: maskSensitive(acc) };
+      // 上游 data 直接是 token 字符串（非对象）
+      const token = typeof r.data?.data === "string" ? r.data.data.trim() : "";
+      if (!token) return { status: "pending" };
+      let label = "catpaw";
+      try {
+        const u = await jsonApi("https://catx.nocode.cn/api/gateway/passport/current-user", {
+          headers: { accept: "application/json", "x-auth-token": token }, timeoutMs: 10_000 });
+        const d = u.data?.data || {};
+        label = d.name || d.nickname || d.userId || label;
+      } catch {}
+      const acc = registerAccount("catpaw", { label: `catpaw:${label}`, type: "token", access: token });
+      return finishFlow(f, { status: "done", account: maskSensitive(acc) });
     },
   },
 
@@ -1530,42 +1650,81 @@ const FLOW_DEFS = {
     },
   },
 
-  // Raccoon —— authorize + code 换取 token
+  // Raccoon —— 临时回环端口收 /auth/callback，authorization_code 自动换 token
   raccoon: {
     async start() {
       const state = crypto.randomBytes(8).toString("hex");
+      const f = newFlow("raccoon", "loopback", { state });
+      await listenLoopback(f, { port: 0, path: "/auth/callback", onHit: async (u) => {
+        const code = u.searchParams.get("code") || "";
+        const st = u.searchParams.get("state") || "";
+        if (st && st !== f.data.state) return { status: "failed", error: "state 校验失败" };
+        if (!code) return { status: "failed", error: "回调缺少 code 参数" };
+        f.result = await FLOW_DEFS.raccoon.code(f, code);
+        return f.result;
+      } });
+      const redirect = `http://127.0.0.1:${f.data.loopbackPort}/auth/callback`;
       const url = `https://xiaohuanxiong.com/code/authorize?login_source=desktop&appname=${encodeURIComponent("办公小浣熊客户端")}`
-        + `&state=${state}&desktop_callback=loopback&redirect=${encodeURIComponent("http://127.0.0.1:0/oauth/callback")}`;
-      const f = newFlow("raccoon", "code-paste", { state });
-      return { flowId: f.id, kind: f.kind, authorizeUrl: url, instructions: "打开链接授权小浣熊，完成后把回调地址里的 code= 粘回来" };
+        + `&state=${state}&desktop_callback=loopback&redirect=${encodeURIComponent(redirect)}`;
+      return { flowId: f.id, kind: f.kind, authorizeUrl: url,
+        instructions: "在小浣熊授权页完成登录，回调自动入池（也可把 code 粘回来）" };
     },
+    async poll(f) { return loopbackPoll(f); },
     async code(f, code) {
       const r = await jsonApi("https://xiaohuanxiong.com/api/web/auth/v1/login_with_authorization_code", {
         method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify({ code, state: f.data.state }),
+        body: JSON.stringify({ authorization_code: code }), timeoutMs: 20_000,
       });
-      const d = r.data?.data || r.data || {};
-      const token = d.token || d.access_token || "";
-      if (!token) return { status: "failed", error: `raccoon exchange failed (${r.status}): ${(r.text || "").slice(0, 160)}` };
-      const acc = registerAccount("raccoon", { label: d.user?.name ? `raccoon:${d.user.name}` : "raccoon", type: "oauth",
-        access: token, fields: { refresh: d.refresh_token || "", userId: d.user?.id || "" } });
-      FLOWS.delete(f.id);
+      if (r.data?.code != null && r.data.code !== 0) {
+        return { status: "failed", error: `raccoon: ${r.data.message || r.data.msg || `code ${r.data.code}`}` };
+      }
+      const d = r.data?.data || {};
+      const token = d.access_token || "", refresh = d.refresh_token || "";
+      if (!token || !refresh) return { status: "failed", error: `raccoon 换码未返回 access+refresh (${r.status})` };
+      let uid = "", name = "", expires = 0;
+      try {
+        const claims = JSON.parse(Buffer.from(token.split(".")[1] || "", "base64url").toString());
+        name = (claims.name || "").trim(); expires = (claims.exp || 0) * 1000;
+        uid = String(claims.userId ?? claims.uid ?? claims.sub ?? "");
+      } catch {}
+      const acc = registerAccount("raccoon", { label: name ? `raccoon:${name}` : "raccoon", type: "oauth",
+        access: token, fields: { refresh, uid, name, expiresAt: expires } });
       return { status: "done", account: maskSensitive(acc) };
     },
   },
 
-  // Trae —— ExchangeToken（手动粘贴 code/refresh token）
+  // Trae CN —— 临时回环端口收 /authorize 回调 → ExchangeToken 自动入池
+  // （对齐 TraeAuth.Flow：www.trae.cn/authorization?…&auth_callback_url=127.0.0.1:<port>/authorize）
   trae: {
     async start() {
-      const f = newFlow("trae-cn", "code-paste", {});
-      return { flowId: f.id, kind: f.kind, authorizeUrl: "https://www.trae.cn", manualHint: true,
-        instructions: "在 Trae 客户端/网页登录后，把 IDE Token（Cloud-IDE-JWT）粘贴过来；也支持粘贴 oauth code 自动换取" };
+      const device = { machineId: crypto.randomBytes(16).toString("hex"), deviceId: crypto.randomBytes(8).toString("hex") };
+      const f = newFlow("trae-cn", "loopback", { device });
+      await listenLoopback(f, { port: 0, path: "/authorize", onHit: async (u) => {
+        const code = u.searchParams.get("code") || u.searchParams.get("Code")
+          || u.searchParams.get("token") || u.searchParams.get("ticket") || "";
+        if (!code) return { status: "failed", error: "回调缺少 code/token 参数" };
+        f.result = await FLOW_DEFS.trae.code(f, code);
+        return f.result;
+      } });
+      const cb = `http://127.0.0.1:${f.data.loopbackPort}/authorize`;
+      const q = [
+        ["login_version", "1"], ["auth_from", "solo"], ["login_channel", "native_ide"],
+        ["plugin_version", "2.3.24254"], ["auth_type", "local"], ["client_id", "ono9krqynydwx5"],
+        ["redirect", "0"], ["login_trace_id", f.id], ["auth_callback_url", cb],
+        ["machine_id", device.machineId], ["device_id", device.deviceId],
+        ["x_device_id", device.deviceId], ["x_machine_id", device.machineId],
+        ["x_device_brand", "ZKALI"], ["x_device_type", "windows"], ["x_os_version", "Windows 10 Pro"],
+        ["x_env", ""], ["x_app_version", "3.3.65"], ["x_app_type", "stable"], ["hide_saas_login", "true"],
+      ];
+      const url = "https://www.trae.cn/authorization?" + q.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
+      return { flowId: f.id, kind: f.kind, authorizeUrl: url,
+        instructions: "在打开的授权页完成 Trae 登录，回调自动入池（也可手动粘贴 IDE Token）" };
     },
+    async poll(f) { return loopbackPoll(f); },
     async code(f, codeOrToken) {
       // 形如 JWT 的直接存
       if ((codeOrToken.match(/\./g) || []).length >= 2) {
         const acc = registerAccount("trae-cn", { label: "trae", type: "token", access: codeOrToken, fields: { deviceId: crypto.randomBytes(8).toString("hex") } });
-        FLOWS.delete(f.id);
         return { status: "done", account: maskSensitive(acc) };
       }
       // 否则按 oauth code 走 ExchangeToken（best-effort）
@@ -1577,26 +1736,52 @@ const FLOW_DEFS = {
       const d = r.data?.data || r.data || {};
       const token = d.token || d.Token || d.jwt || "";
       if (!token) return { status: "failed", error: `trae exchange failed (${r.status}): ${(r.text || "").slice(0, 160)}` };
-      const acc = registerAccount("trae-cn", { label: "trae", type: "oauth", access: token, fields: { deviceId, refresh: d.refreshToken || d.RefreshToken || "" } });
-      FLOWS.delete(f.id);
+      const acc = registerAccount("trae-cn", { label: "trae", type: "oauth", access: token, fields: { deviceId, machineId: f.data.device?.machineId || "", refresh: d.refreshToken || d.RefreshToken || "" } });
       return { status: "done", account: maskSensitive(acc) };
     },
   },
 
-  // WorkBuddy / WorkBuddy-AI —— 网页登录后手动粘贴 token（APK 用 WebView 到 profile/keys）
-  workbuddy: {
+  // WorkBuddy（腾讯免Key订阅池）—— auth/state → auth/token 轮询自动入池
+  // （对齐 LoginActivity.initWorkBuddyAuth / startWorkBuddyPolling）
+  "workbuddy-scan": {
+    async start() {
+      const r = await jsonApi("https://copilot.tencent.com/v2/plugin/auth/state?platform=CLI", {
+        method: "POST", headers: { "content-type": "application/json" }, body: "{}", timeoutMs: 15_000 });
+      const d = r.data?.data || {};
+      if (!d.authUrl || !d.state) throw new Error(`获取腾讯官方授权链接失败 (${r.status}): ${(r.text || "").slice(0, 160)}`);
+      const f = newFlow("workbuddy", "device-poll", { state: d.state, interval: 2500, lastPoll: 0 });
+      return { flowId: f.id, kind: f.kind, authorizeUrl: d.authUrl,
+        instructions: "输入手机号短信验证码或微信登录，完成后自动入池" };
+    },
+    async poll(f) {
+      if (now() - f.data.lastPoll < f.data.interval) return { status: "pending" };
+      f.data.lastPoll = now();
+      const r = await jsonApi(`https://copilot.tencent.com/v2/plugin/auth/token?state=${encodeURIComponent(f.data.state)}`, { timeoutMs: 10_000 });
+      const res = r.data || {};
+      if (res.code !== 0) return { status: "pending" };
+      const data = res.data || {};
+      const token = data.accessToken || data.access_token || data.token || "";
+      if (!token) return { status: "pending" };
+      const who = data.name || data.nickname || data.userId || "WorkBuddy用户";
+      const acc = registerAccount("workbuddy", { label: `workbuddy:${who}`, type: "oauth",
+        access: token, fields: { userId: data.userId || "", name: data.name || data.nickname || "" } });
+      return finishFlow(f, { status: "done", account: maskSensitive(acc) });
+    },
+  },
+
+  // WebView 提取流 —— 桌面端打开内置登录窗口，自动从 cookie/localStorage 提取
+  // 凭据后 POST /admin/accounts 入池；本端只负责给出登录入口地址。
+  // （对齐 APK LoginActivity 的 WebView + 完成入池提取链路）
+  webview: {
     async start(input) {
-      const pid = input?.provider === "workbuddy-ai" ? "workbuddy-ai" : "workbuddy";
-      const url = pid === "workbuddy-ai" ? "https://www.workbuddy.ai/profile/keys" : "https://copilot.tencent.com/profile/keys";
-      const f = newFlow(pid, "code-paste", {});
-      return { flowId: f.id, kind: f.kind, authorizeUrl: url, manualHint: true,
-        instructions: `打开 ${url} 登录，复制页面上的 API Token 粘贴回来` };
+      const pid = input?.provider;
+      const def = PROVIDERS[pid];
+      const f = newFlow(pid, "webview", {});
+      return { flowId: f.id, kind: "webview", authorizeUrl: def?.loginUrl || "",
+        extractHosts: def?.extractHosts || [], extract: def?.extract || "generic",
+        instructions: "在内置登录窗口完成登录，会自动提取凭据入池" };
     },
-    async code(f, token) {
-      const acc = registerAccount(f.provider, { label: f.provider, type: "token", access: token.trim() });
-      FLOWS.delete(f.id);
-      return { status: "done", account: maskSensitive(acc) };
-    },
+    async poll(f) { return loopbackPoll(f); },
   },
 
   // Loomy —— 手机验证码（HmacSHA1 签名账号体系）
@@ -1614,12 +1799,11 @@ const FLOW_DEFS = {
       const session = await loomyCheckCode(f.data.phone, code, f.data.msgid);
       const acc = registerAccount("loomy", { label: `loomy:${f.data.phone.slice(0, 3)}****${f.data.phone.slice(-4)}`, type: "token",
         access: session, fields: { phone: f.data.phone } });
-      FLOWS.delete(f.id);
       return { status: "done", account: maskSensitive(acc) };
     },
   },
 
-  // DeepSeek 网页 —— 手动粘贴 userToken（浏览器 devtools 从 cookie/ls 取）
+  // 通用兜底 —— 无自动协议供应商的手动凭据粘贴流
   "manual-token": {
     async start(input) {
       const f = newFlow(input?.provider || "deepseek_web", "code-paste", {});
@@ -1628,11 +1812,63 @@ const FLOW_DEFS = {
     },
     async code(f, token) {
       const acc = registerAccount(f.provider, { label: f.provider, type: "token", access: token.trim() });
-      FLOWS.delete(f.id);
       return { status: "done", account: maskSensitive(acc) };
     },
   },
 };
+
+// ---- ZCode signedIn 链（对齐 ZCodeAuth.signedIn：oauth token → 业务令牌 → api_keys 铸造 id.secret）----
+async function zcodeBizArray(url, headers) {
+  const r = await jsonApi(url, { headers, timeoutMs: 20_000 });
+  const env = r.data;
+  if (env?.code != null && !["0", "200"].includes(String(env.code))) {
+    throw new Error(env.msg || env.message || `biz code ${env.code}`);
+  }
+  if (Array.isArray(env?.data)) return env.data;
+  if (Array.isArray(env)) return env;
+  return null;
+}
+
+async function zcodeMintKey(site, oauthToken) {
+  // bizAuth：zai 需要把 oauth token 换成业务 Bearer；bigmodel 原样透传
+  let auth;
+  if (site === "bigmodel") {
+    auth = oauthToken;
+  } else {
+    const r = await jsonApi("https://api.z.ai/api/auth/z/login", {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ token: oauthToken }), timeoutMs: 20_000 });
+    const at = r.data?.access_token || r.data?.data?.access_token || "";
+    if (!at) throw new Error("z.ai 登录未返回业务令牌");
+    auth = `Bearer ${at}`;
+  }
+  const root = site === "bigmodel" ? "https://bigmodel.cn" : "https://api.z.ai";
+  const headers = { authorization: auth, accept: "application/json", "content-type": "application/json", "user-agent": "zcode/3.17.2" };
+  const orgs = await zcodeBizArray(`${root}/api/biz/v1/organization/`, headers);
+  const orgId = orgs?.[0]?.id || orgs?.[0]?.organizationId || orgs?.[0]?.organization_id || "";
+  if (!orgId) throw new Error("未找到 ZCode 组织");
+  const projs = await zcodeBizArray(`${root}/api/biz/v1/organization/${encodeURIComponent(orgId)}/projects/`, headers);
+  const projId = projs?.[0]?.id || projs?.[0]?.projectId || projs?.[0]?.project_id || "";
+  if (!projId) throw new Error("未找到 ZCode 项目");
+  const keys = `${root}/api/biz/v1/organization/${encodeURIComponent(orgId)}/projects/${encodeURIComponent(projId)}/api_keys`;
+  const want = "zkali-allin";
+  const list = await zcodeBizArray(keys, headers);
+  let id = "";
+  for (const k of list || []) {
+    if (k?.name === want && (k.apiKey || k.api_key)) { id = k.apiKey || k.api_key; break; }
+  }
+  if (!id) {
+    const cr = await jsonApi(keys, { method: "POST", headers, body: JSON.stringify({ name: want }), timeoutMs: 20_000 });
+    const cd = cr.data?.data || cr.data || {};
+    id = cd.apiKey || cd.api_key || "";
+  }
+  if (!id) throw new Error("API key 创建失败");
+  const cp = await jsonApi(`${keys}/copy/${encodeURIComponent(id)}`, { headers, timeoutMs: 20_000 });
+  const cd2 = cp.data?.data || cp.data || {};
+  const secret = cd2.secretKey || cd2.secret_key || "";
+  if (!secret) throw new Error("API key secret 获取失败");
+  return `${id}.${secret}`;
+}
 
 // Loomy 签名请求（AK/SK 来自 APK 常量）
 const LOOMY_AK = "2thryby66wxi53sk";
@@ -1842,6 +2078,8 @@ function adminState() {
       name: def.name, lane: def.lane, enabled: !!pc.enabled, baseUrl: pc.baseUrl || def.baseUrl,
       authFlow: def.authFlow || (def.keyProvider ? "key" : "manual-token"),
       loginUrl: def.loginUrl, models: def.models || [], keyProvider: !!def.keyProvider,
+      extractHosts: def.extractHosts || [], extract: def.extract || null,
+      authParams: def.authParams || null,
       placeholder: !!def.placeholder,
       accounts: (pc.accounts || []).map((a) => ({
         id: a.id, label: a.label, type: a.type, access: redactSecret(a.access),
@@ -1924,7 +2162,7 @@ async function adminRoute(req, res, path, query) {
   }
   if (method === "GET" && path === "/admin/models") return sendJson(res, 200, { models: availableModels() });
   if (method === "GET" && path === "/admin/providers") {
-    return sendJson(res, 200, { providers: Object.entries(PROVIDERS).map(([id, d]) => ({ id, name: d.name, lane: d.lane, enabled: !!providerCfg(id).enabled, authFlow: d.authFlow || (d.keyProvider ? "key" : "manual-token"), loginUrl: d.loginUrl, models: d.models, placeholder: !!d.placeholder, baseUrl: providerCfg(id).baseUrl || d.baseUrl })) });
+    return sendJson(res, 200, { providers: Object.entries(PROVIDERS).map(([id, d]) => ({ id, name: d.name, lane: d.lane, enabled: !!providerCfg(id).enabled, authFlow: d.authFlow || (d.keyProvider ? "key" : "manual-token"), loginUrl: d.loginUrl, models: d.models, placeholder: !!d.placeholder, extractHosts: d.extractHosts || [], authParams: d.authParams || null, baseUrl: providerCfg(id).baseUrl || d.baseUrl })) });
   }
 
   // PATCH /admin/providers/:pid {enabled, baseUrl}
@@ -1947,6 +2185,12 @@ async function adminRoute(req, res, path, query) {
     if (!PROVIDERS[pid]) return sendJson(res, 400, { error: "unknown provider" });
     if (!b.access) return sendJson(res, 400, { error: "missing access/token" });
     const acc = registerAccount(pid, { label: b.label, access: String(b.access).trim(), type: b.type || "token", fields: b.fields || {}, proxy: b.proxy || null });
+    // 登录窗口提取成功：把该供应商进行中的 webview 流标记为完成，让正在轮询的 UI 收尾
+    for (const f of FLOWS.values()) {
+      if (f.provider === pid && f.kind === "webview" && !f.result) {
+        f.result = { status: "done", account: maskSensitive(acc) };
+      }
+    }
     return sendJson(res, 200, { ok: true, account: maskSensitive(acc) });
   }
 
@@ -2028,7 +2272,12 @@ async function adminRoute(req, res, path, query) {
     if (!f) return sendJson(res, 404, { error: "flow not found or expired" });
     const def2 = FLOW_DEFS[providerDef(f.provider)?.authFlow || "manual-token"] || FLOW_DEFS["manual-token"];
     if (!def2.poll) return sendJson(res, 400, { error: "flow does not poll" });
-    try { return sendJson(res, 200, await def2.poll(f)); }
+    try {
+      const out = await def2.poll(f);
+      // 终态统一收尾（有些 def 内部已删，重复 delete 无害）
+      if (["done", "failed", "duplicate", "expired", "closed"].includes(out?.status) && FLOWS.has(f.id)) finishFlow(f, out);
+      return sendJson(res, 200, out);
+    }
     catch (e) { return sendJson(res, 200, { status: "failed", error: String(e.message || e).slice(0, 300) }); }
   }
   if (method === "POST" && path === "/admin/auth/code") {
@@ -2040,8 +2289,20 @@ async function adminRoute(req, res, path, query) {
     if (!code) return sendJson(res, 400, { error: "missing code" });
     // 用户可能粘贴整个回调 URL
     const m = code.match(/[?&]code=([^&]+)/);
-    try { return sendJson(res, 200, await (def2.code || def2.poll)(f, decodeURIComponent(m ? m[1] : code))); }
+    try {
+      const out = await (def2.code || def2.poll)(f, decodeURIComponent(m ? m[1] : code));
+      if (["done", "failed", "duplicate"].includes(out?.status) && FLOWS.has(f.id)) finishFlow(f, out);
+      return sendJson(res, 200, out);
+    }
     catch (e) { return sendJson(res, 200, { status: "failed", error: String(e.message || e).slice(0, 300) }); }
+  }
+  // 取消授权流：释放回环监听并移除
+  if (method === "POST" && path === "/admin/auth/cancel") {
+    const b = safeJson((await readBody(req)).toString()) || {};
+    const f = FLOWS.get(b.flowId);
+    if (!f) return sendJson(res, 404, { error: "flow not found" });
+    finishFlow(f, { status: "closed" });
+    return sendJson(res, 200, { ok: true });
   }
 
   // ---- 分组 ----
