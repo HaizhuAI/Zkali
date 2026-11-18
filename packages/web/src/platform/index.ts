@@ -246,5 +246,10 @@ export function createWebPlatform(options?: {
       platformProxy
         ? platformProxy.requestPlatformMethod("zkaliAllinRequest", payload)
         : Promise.resolve({ status: 0, running: false, error: "desktop-only" }),
+    // webview 登录窗只在被控桌面本机可开（窗口落在桌面屏幕上）。
+    zkaliAllinLogin: (payload) =>
+      platformProxy
+        ? platformProxy.requestPlatformMethod("zkaliAllinLogin", payload)
+        : Promise.resolve({ ok: false, error: "desktop-only" }),
   };
 }

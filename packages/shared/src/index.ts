@@ -266,6 +266,8 @@ export type {
   ZkaliOpencodeZenPoolBridgeResponse,
   ZkaliAllinBridgeRequest,
   ZkaliAllinBridgeResponse,
+  ZkaliAllinLoginRequest,
+  ZkaliAllinLoginResponse,
 } from "./platform.js";
 export type {
   CuaAccessibilitySettingsResult,

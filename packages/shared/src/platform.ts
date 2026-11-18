@@ -1320,6 +1320,16 @@ export interface IPlatformService {
   zkaliAllinRequest(
     request: ZkaliAllinBridgeRequest,
   ): Promise<ZkaliAllinBridgeResponse>;
+
+  /**
+   * zkali Allin webview 登录窗：主进程开一次性 in-memory session 窗口加载
+   * 授权页，自动做 cookie/localStorage/sessionStorage 凭据提取并 POST
+   * /admin/accounts 入池——凭据与 authKey 均不经过 renderer。
+   * device-poll/loopback 流不用此通道（系统浏览器 + 网关回环回调）。
+   */
+  zkaliAllinLogin?(
+    request: ZkaliAllinLoginRequest,
+  ): Promise<ZkaliAllinLoginResponse>;
 }
 
 /** OpenCodeZen 号池桥接请求：path 仅允许 /admin|/v1|/health 前缀。 */
@@ -1350,4 +1360,24 @@ export interface ZkaliAllinBridgeResponse {
   error?: string;
   /** false = 网关进程未运行（设置页据此显示"未运行"态）。 */
   running?: boolean;
+}
+
+/** Allin webview 登录窗请求：由网关 /admin/auth/start 的 webview flow 返回驱动。 */
+export interface ZkaliAllinLoginRequest {
+  provider: string;
+  /** 供应商登录页 URL（网关 authorizeUrl/loginUrl）。 */
+  url: string;
+  /** 提取凭据时匹配的域名白名单（网关 extractHosts）。 */
+  extractHosts: string[];
+  /** 提取器类型：generic=JWT/cookie 名扫描；deepseek=localStorage.userToken.value。 */
+  extract?: "generic" | "deepseek";
+  /** 入池账号 label（缺省用 provider id）。 */
+  label?: string;
+}
+
+export interface ZkaliAllinLoginResponse {
+  ok: boolean;
+  account?: { id: string; label: string };
+  /** closed=用户关窗；timeout=超时；gw 未运行/请求非法/入池失败同字段返回。 */
+  error?: string;
 }

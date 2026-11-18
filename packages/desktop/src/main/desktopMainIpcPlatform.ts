@@ -48,6 +48,7 @@ import { captureWindowScreenshot, openPathInFileManager } from "./desktopMainIpc
 import { registerCuaPermissionIpcHandlers } from "./desktopCuaPermissionIpc.js";
 import { handleZkaliOpencodeZenPoolRequest } from "./zkaliOpencodeZenPool.js";
 import { handleZkaliAllinRequest } from "./zkaliAllinGw.js";
+import { handleZkaliAllinLogin } from "./zkaliAllinLogin.js";
 import {
   registerDesktopBrowserIpcHandlers,
   type AttachBrowserGuest,
@@ -462,6 +463,9 @@ export function registerPlatformIpcHandlers(options: {
   );
   ipcMain.handle(PlatformChannels.ZkaliAllinRequest, (_event, payload) =>
     handleZkaliAllinRequest(payload),
+  );
+  ipcMain.handle(PlatformChannels.ZkaliAllinLogin, (_event, payload) =>
+    handleZkaliAllinLogin(payload, { logger: options.logger }),
   );
   ipcMain.handle(PlatformChannels.ExportLogs, () => exportLogs());
   ipcMain.handle(PlatformChannels.CaptureWindowScreenshot, async (event) => {

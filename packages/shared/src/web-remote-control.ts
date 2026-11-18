@@ -13,6 +13,8 @@ import type {
   ZkaliOpencodeZenPoolBridgeResponse,
   ZkaliAllinBridgeRequest,
   ZkaliAllinBridgeResponse,
+  ZkaliAllinLoginRequest,
+  ZkaliAllinLoginResponse,
 } from "./platform.js";
 
 import type {
@@ -342,6 +344,7 @@ export interface WebRemoteControlPlatformMethodArgsMap {
   migrateLegacyCommonMcp: MigrateLegacyCommonMcpRequest | undefined;
   zkaliOpencodeZenPoolRequest: ZkaliOpencodeZenPoolBridgeRequest;
   zkaliAllinRequest: ZkaliAllinBridgeRequest;
+  zkaliAllinLogin: ZkaliAllinLoginRequest;
 }
 
 export interface WebRemoteControlPlatformMethodResultMap {
@@ -355,6 +358,7 @@ export interface WebRemoteControlPlatformMethodResultMap {
   migrateLegacyCommonMcp: MigrateLegacyCommonMcpResult;
   zkaliOpencodeZenPoolRequest: ZkaliOpencodeZenPoolBridgeResponse;
   zkaliAllinRequest: ZkaliAllinBridgeResponse;
+  zkaliAllinLogin: ZkaliAllinLoginResponse;
 }
 
 export type WebRemoteControlPlatformMethod = keyof WebRemoteControlPlatformMethodResultMap;

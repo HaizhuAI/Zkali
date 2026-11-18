@@ -219,5 +219,6 @@ export function createDesktopPlatform(options: {
       (window as Window & { __ZCODE_DEVICE_ID__?: string }).__ZCODE_DEVICE_ID__ ?? "",
     zkaliOpencodeZenPoolRequest: (request) => window.zcode.zkaliOpencodeZenPoolRequest(request),
     zkaliAllinRequest: (request) => window.zcode.zkaliAllinRequest(request),
+    zkaliAllinLogin: (request) => window.zcode.zkaliAllinLogin(request),
   };
 }

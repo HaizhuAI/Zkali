@@ -1552,6 +1552,7 @@ exceptions:
     paths:
       - packages/services/src/model-provider/zkaliAllinSeed.ts
       - packages/desktop/src/main/zkaliAllinGw.ts
+      - packages/desktop/src/main/zkaliAllinLogin.ts
       - packages/ui/src/settings/allin-gw/**
       - apps/zcode-cli/packages/zkali-plugin/scripts/zkali-allin-gw.mjs
     reason: zkali 发行版 Allin 聚合网关（逆向自 All In APK 的 21+ 供应商聚合网关移植）：网关进程是唯一状态所有者（~/.zcode/zkali-allin.json），services 侧仅做幂等 Provider seed，desktop main 只做进程拉起与 admin IPC 代理，ui 为设置页投影；四者按各自宿主 legacy 模块兜底，随发行版登记例外而非新建 managed 模块。

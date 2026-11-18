@@ -244,6 +244,7 @@ import {
   handleZkaliAllinRequest,
   stopZkaliAllinGw,
 } from "./zkaliAllinGw.js";
+import { handleZkaliAllinLogin } from "./zkaliAllinLogin.js";
 import {
   loadCliMcpFromUserDirectory,
   migrateLegacyCommonMcp,
@@ -1046,6 +1047,7 @@ const webRemoteControlManager = createWebRemoteControlManager({
     migrateLegacyCommonMcp: (payload) => migrateLegacyCommonMcp(payload),
     zkaliOpencodeZenPoolRequest: (payload) => handleZkaliOpencodeZenPoolRequest(payload),
     zkaliAllinRequest: (payload) => handleZkaliAllinRequest(payload),
+    zkaliAllinLogin: (payload) => handleZkaliAllinLogin(payload, { logger }),
   },
   reconnectWorkspace: reconnectWebRemoteControlWorkspaceInRenderer,
   runRendererAction: runWebRemoteControlActionInRenderer,

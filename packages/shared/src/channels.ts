@@ -530,6 +530,8 @@ export const PlatformChannels = {
   ZkaliOpencodeZenPoolRequest: "zcode:zkali-opencodezen-pool-request",
   /** Renderer → Main：zkali Allin 聚合网关 admin/v1 请求代理（authKey 不出主进程） */
   ZkaliAllinRequest: "zcode:zkali-allin-request",
+  /** Renderer → Main：zkali Allin webview 登录窗（凭据提取与入池均在主进程完成） */
+  ZkaliAllinLogin: "zcode:zkali-allin-login",
 } as const;
 
 export type PlatformChannelName = (typeof PlatformChannels)[keyof typeof PlatformChannels];
