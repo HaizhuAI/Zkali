@@ -23,7 +23,7 @@
     "prepare:windows-runtime-host": "node ../../scripts/build-windows-runtime-host.mjs --ensure",
     "prepare:native-search": "node ../../scripts/prepare-native-search-tools.mjs",
     "prepare:browser-import-helper": "node scripts/build-windows-browser-import-helper.mjs",
-    "prepare:preinstalled-entry-shim": "node scripts/build-windows-preinstalled-entry-shim.mjs",
+    "prepare:preinstalled-entry-shim": "node scripts/build-windows-preinstalled-entry-shim.mjs --ensure",
     "prepare:macos-window-bounds": "node scripts/build-macos-window-bounds.mjs",
     "build:no-runtime-assets": "pnpm prepare:build-meta && node scripts/run-production-build.mjs",
     "build": "pnpm prepare:runtime-assets && pnpm run build:no-runtime-assets",
