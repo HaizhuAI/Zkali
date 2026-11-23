@@ -2500,6 +2500,14 @@ exceptions:
       - packages/ui/src/components/workflow-timeline/workflowRunSave.ts
       - packages/ui/src/store/workflowRunSavedStore.ts
       - packages/ui/src/v4/officeSuggestedPrompts.ts
+      - apps/zcode-cli/packages/core/src/system-reminder/incoming-message.ts
+      - packages/desktop/src/main/desktopZCodeDataSizeTelemetry.ts
+      - packages/desktop/src/main/zcodeDataSizeTelemetryState.ts
+      - packages/desktop/src/main/zcodeDataSizeWorkerClient.ts
+      - packages/services/src/model-provider/legacyModelProviderSerialized.ts
+      - packages/services/src/model-provider/legacyPersonalProviderConfigImporter.ts
+      - packages/services/src/model-provider/legacyZCodeConfigProviderReader.ts
+      - packages/ui/src/lib/chatErrorAttribution.ts
     reason: 这些文件是 gate 时间戳之后进入仓库的存量上游新增（legacy 模块内），仅因 zkali 发行版 ZCode→zkali 品牌改名的机械字符串替换被纳入 --changed 闭包而首次命中检查；改名本身未引入新文件语义，逐一 adopt 不在本次发行范围，沿用 zcode-cua 先例登记例外。
   - id: zkali-wallpaper-theme-module
     rule: unmanaged-new-file
