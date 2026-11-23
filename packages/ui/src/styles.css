@@ -2522,6 +2522,8 @@ html.zkali-wallpaper .bg-background {
 html.zkali-wallpaper body,
 html.zkali-wallpaper #root {
   background: transparent !important;
+}
+
 /* 文字填充与图标分别控制，避免箭头和身份头像随摘要文字变色；扫光保留自身透明填充。 */
 @media (hover: hover) {
   .summary-hover-text:hover {
