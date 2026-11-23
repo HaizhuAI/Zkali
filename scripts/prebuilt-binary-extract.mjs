@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -35,6 +36,22 @@ function resolveTarArchiveArg(archivePath, cwd) {
   return toTarPosixPath(archivePath);
 }
 
+let cachedGnuTar;
+
+// GNU tar 与 bsdtar 在 PATH 中的命中顺序随环境变化（Git Bash / MSYS / System32），
+// 每次 extract 探测一次风味代价可忽略，缓存只影响同进程内的重复调用。
+function isGnuTar() {
+  if (cachedGnuTar === undefined) {
+    try {
+      const probe = spawnSync("tar", ["--version"], { encoding: "utf8" });
+      cachedGnuTar = probe.status === 0 && String(probe.stdout).includes("GNU");
+    } catch {
+      cachedGnuTar = false;
+    }
+  }
+  return cachedGnuTar;
+}
+
 export function extractPrebuiltArchive({ archivePath, archiveExt, extractDir, cwd }) {
   mkdirSync(extractDir, { recursive: true });
   if (archiveExt === "zip") {
@@ -56,9 +73,12 @@ export function extractPrebuiltArchive({ archivePath, archiveExt, extractDir, cw
 
   const tarCwd = cwd ?? process.cwd();
   // Bugfix: 归档路径落到跨目录 ../ 回退分支时仍带盘符冒号（如 D:/…），GNU tar 会把
-  // -f 参数解析成远程主机名导致解压失败。win32 下统一加 --force-local 强制按本地
-  // 文件处理（bsdtar 兼容同名选项，Linux/macOS 路径不变）。
-  const tarArgs = process.platform === "win32" ? ["--force-local", "-xzf"] : ["-xzf"];
+  // -f 参数解析成远程主机名导致解压失败，需要 --force-local 强制按本地文件处理。
+  // 但 Windows 自带 bsdtar（System32\tar.exe）不支持该选项、会直接报
+  // "Option --force-local is not supported"——且 bsdtar 原生按本地文件处理盘符路径，
+  // 不需要旗标。按 tar 风味探测，仅 GNU tar 才加。
+  const tarArgs = ["-xzf"];
+  if (process.platform === "win32" && isGnuTar()) tarArgs.unshift("--force-local");
   runCommand(
     "tar",
     [...tarArgs, resolveTarArchiveArg(archivePath, tarCwd), "-C", toTarPosixPath(extractDir)],

@@ -148,12 +148,25 @@ const ensureExtractedNode = async ({ archivePath, extractRoot, nodeVersion, targ
 
   try {
     // Bugfix: Windows GNU tar（Git Bash）会把 -f 参数里的盘符冒号（D:/…）当成远程
-    // 主机名导致解压失败，-C 的反斜杠路径还会被当转义序列吃掉。win32 下加
-    // --force-local 并把两个路径统一转正斜杠（bsdtar 兼容同名选项，POSIX 路径不变）。
+    // 主机名导致解压失败，-C 的反斜杠路径还会被当转义序列吃掉。win32 下 GNU tar 加
+    // --force-local 并把两个路径统一转正斜杠；Windows 自带 bsdtar（System32\tar.exe）
+    // 不支持该选项、原生即可处理盘符路径，按风味探测分别处理。
     const toTarPath = (value) => value.replaceAll("\\", "/");
+    const gnuTar =
+      process.platform === "win32" &&
+      (() => {
+        const probe = spawnSync("tar", ["--version"], { encoding: "utf8" });
+        return probe.status === 0 && String(probe.stdout).includes("GNU");
+      })();
     const tarArgs =
       process.platform === "win32"
-        ? ["--force-local", "-xf", toTarPath(archivePath), "-C", toTarPath(extractRoot)]
+        ? [
+            ...(gnuTar ? ["--force-local"] : []),
+            "-xf",
+            toTarPath(archivePath),
+            "-C",
+            toTarPath(extractRoot),
+          ]
         : ["-xf", archivePath, "-C", extractRoot];
     run("tar", tarArgs);
   } catch (error) {
