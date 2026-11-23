@@ -975,7 +975,7 @@ line 「决定分组 · 等待补全」; after the fill its mini rail has one la
 
 **The fill row.** `FillWorkflowHole` is rendered by the `CreateWorkflow` row's renderer with
 the hole vocabulary, selected by tool name: 「正在补全留白」 shimmering while the body streams,
-「留白补全草稿 · 草稿 {n} · {k} 处待修 · 未运行」 on diagnostics with the compiler-feedback body,
+「留白补全草稿 · 草稿 {n} · {k} 处待修 未运行」（状态两词以 gap-2 分隔，无中点） on diagnostics with the compiler-feedback body,
 「留白已补全 · {name} · {k} 个阶段 · {m} 个子代理 ↗」 when joined. Its draft line is the parent
 rail with the fill in place: the head over the fill's stations at full ink, and on either
 side the neighbours they go between, ghosted at 40%. It is the one thing a `CreateWorkflow`
@@ -1024,7 +1024,7 @@ row's v4 status:
 |---|---|---|
 | `inputStreaming` | "Writing workflow"; from draft 2 on "Revising workflow" / 「正在修改工作流」 | a `ToolLayout` row that cannot be expanded, with the **draft phase line** below it (not inside it: no fold) |
 | `pendingApproval` | "Awaiting workflow confirmation" | a `ToolLayout` row, collapsed by default, expandable to the script (`CodeBlock`, 320px max) and diagnostics; the running shimmer stays on |
-| compile errors | "Workflow draft" / 「工作流草稿」 | the compiler feedback row (see "Compiler feedback"): detail "draft {n}", a hollow lamp and "{n} to fix · not run", expandable to the script and the feedback card |
+| compile errors | "Workflow draft" / 「工作流草稿」 | the compiler feedback row (see "Compiler feedback"): detail "draft {n}", a hollow lamp and "{n} to fix" "not run" (two words, gap-2, no dot), expandable to the script and the feedback card |
 | failed with no display | "Workflow" | a `ToolLayout` row with the tool's status word, the error in its tooltip, expandable to the plain output text |
 | launched, joined to a run | "Workflow" | `WorkflowToolSummary`: "Workflow · {n} agents ↗", one line, click or Enter/Space opens the run pane; plain text when the host cannot open it |
 | compiled, never launched (denied, or a host without execution) | "Workflow" | the static card: header with a hollow "compiled" lamp, the static timeline, and a collapsed script fold; open state remembered per tool id |
@@ -1122,8 +1122,8 @@ context hands each tool row its own position. The rules:
 **Words.** The detail slot reads "draft {n}" / 「第 {n} 稿」 on a compile-feedback row
 always, and on an in-flight row (writing, validating, awaiting confirmation) from draft 2
 on. A first draft is not numbered while it is written, so a row never predicts a second.
-The compile-feedback row's status reads "{n} to fix · not run" / 「{n} 处待修正 · 未运行」
-(`errorCount`), and its tooltip opens with the feedback sentence below, followed by one
+The compile-feedback row's status reads "{n} to fix" and "not run" / 「{n} 处待修正」「未运行」
+(`errorCount`) as two words separated by a `gap-2` space, without a decorative dot, and its tooltip opens with the feedback sentence below, followed by one
 `L{line}:C{col} message` line per diagnostic. The launched summary, the run card and the
 confirmation window never carry a draft number. A host without the join shows no number
 and an open lamp.
@@ -1935,7 +1935,7 @@ For a run whose row is terminal, the trailing stored `run-settled` (when there i
 dropped and an in-memory `run-settled` carrying the row's status, stop reason (`user` when
 missing), successor and failure takes its place at the same sequence; when the events end
 before a settle (the process died, orphan reconciliation only rewrote the row) it is
-appended after the last one; an App that closes under a live run does not leave this gap, because its engine writes its own `stopped(interrupted)` settle before the close resolves (`execution-engine.md`, "Engine ownership"). It is never written to the journal. The row is the status
+appended after the last one with `syntheticSettlement: true`, retaining the last real sequence (zero for an empty journal). It changes preview state without advancing real-event deduplication; the next persisted `run-started` must remain admissible. An App that closes under a live run does not leave this gap, because its engine writes its own `stopped(interrupted)` settle before the close resolves (`execution-engine.md`, "Engine ownership"). It is never written to the journal. The row is the status
 authority and its codec already speaks the current vocabulary, whereas event payloads are
 stored verbatim: runs settled before the terminal-state redesign carry `run-settled
 {status: "cancelled" | "failed"}`, words the reducer does not know, and replaying those
@@ -1967,60 +1967,27 @@ always prefers the projection's `toolCallId`, so the pane can find the originati
 
 ## Other places a run appears
 
-The **status capsule** lists live runs (`pending` and `running`) in launch order. Each row
-says which workflow, where it has got to, and how long, in two lines of fixed height (56 px):
+The **Activity capsule** counts running Bash tasks, independent subagents and workflows;
+workflow actors are not counted twice. The popover lists running items followed by this
+batch's retained results. Workflow rows use a status lamp aligned with the first-line title,
+16px actor faces on the second line, and subtle `text-ui-sm` elapsed time plus the Stop action
+below. Titles use `text-ui-base`. Stopped and failed results preserve their reason or error.
+Completed results remain until the next successfully accepted input; failed input does not
+clear them. See `docs/ui/chat-summary-panel.md` for the shared layout and lifecycle contract.
 
-- **Line one:** the Workflow icon, the name (one line, truncated; the fallback name
-  "Workflow script" in the subtle colour when the run is unnamed) and, on the right, the
-  elapsed time (`text-ui-sm`, subtle, tabular). The time uses the duration units without
-  the "Running for" prefix and drops seconds past an hour (`1h 2m`). There is no time for a
-  pending run or without a paired background work.
-- **Line two** is the sidebar run line's vocabulary: the same `WorkflowRunRail` (lamps,
-  trace segments, twin segments, the ±2 fold with `+n`), then the **phase words**. A running
-  run's words are its burning phases joined by ` ∥ ` when more than one burns, else its
-  current phase, else the status word. A pending run shows a hollow lamp and the status word.
-  A run that declared no phases shows one running lamp and `{done}/{total} steps`, the only
-  place steps still appear.
-- A workflow work with no run in the projection (an older CLI) gets a **degraded row**: line
-  one only (name and time), so the Stop entry never disappears.
-- **Stop** is today's ghost button ("Stop", square icon) laid over the time. It shows on
-  hover or keyboard focus within the row, and the time fades out under it. On a coarse
-  pointer (no hover), it is always shown as a 32 px icon button in a third column, and the
-  time moves to the end of line two. Stop is absent when the work cannot be cancelled. Its
-  accessible name is the card's "Stop run".
-- The row opens the run pane through a transparent sibling button when it has a tool call
-  id. The button's accessible name carries the run's name, status and phase words, because
-  the visible status word is gone.
+The Activity popover lists current running items and retained results. Below the list,
+"Workflow runs · N" opens the **run directory** tab (`workflow-directory`, one per session,
+no run data), when the ended journal count is positive and the host supports the directory.
+The directory reads Running and Ended from the journal discovery query (limit 64), refreshing
+when the projection run count or settled count changes, never on node progress. Rows without
+a tool call id are dropped from the list and count. Directory totals do not contribute to
+Activity's running count or keep a dismissed capsule visible.
 
-The section header reads a running lamp and `{n} running`, the same whether the section is
-open or folded (no longest-elapsed figure). Expanding the island never shows less than the
-pill did: the section **opens when a live run appears** (the live count goes from zero to
-one or more, including on entering a session that has one) and folds when the last run ends,
-and clicking a pill that shows a workflow expands the island with the section open, even if
-the reader folded it earlier. A fold by hand holds until the runs end or the session changes.
-Terminals and Agents keep starting folded: they never lead the pill. Only the run list scrolls, at three and a half
-rows so the half row shows there is more; the ended entry sits below the scroll area.
+Clicking Activity always opens its popover, including when exactly one workflow is running.
+Clicking that workflow row opens its run pane. A workflow launched from the hub draws the
+same run card in place of the user bubble (`docs/dynamic-workflow/launch.md`).
 
-The capsule's **pill** (the collapsed summary) shows the first live run, ahead of every
-other summary: the Workflow icon, the name, a lamp (running or pending), the phase words and
-`+n` for the other live runs. The phase words keep their full width up to 45 % of the pill
-and only the name is cut (the phase never shrinks, and its cap leaves the name the rest; a
-fixed floor on the name would pad a short name with a gap): a name is recognised from its
-start, a cut phase says nothing. A degraded run shows its name alone, with no lamp. A live workflow
-outranks the to-do, goal and git summaries because while it runs it is what the session is
-doing; the old reason to rank running work last (it repeated the composer badge's count)
-does not hold for a name and a phase.
-
-Below the rows, "ended workflows · N" opens the **run directory** tab (`workflow-directory`, one per session, no run
-data): two sections, "Running" and "Ended", read from the journal's discovery query with a
-limit of 64 ("Showing the {count} most recent runs only" when full), refreshed when the
-projection's run count or settled count changes, never on node progress; rows without a
-tool call id are dropped from both the list and the count so the two agree by
-construction. The **composer badge** counts running workflows separately from terminals and
-subagents; when the only running work in the session is one workflow with a tool call id,
-clicking it opens that run's pane directly ("Open workflow details") instead of expanding
-the capsule. A workflow launched directly from the hub draws the same **run card** in place
-of the user bubble, joined to the same run (`docs/dynamic-workflow/launch.md`).
+目录页视觉与 Subagents 对齐：不重复显示页内标题；运行项为零时隐藏运行分组，Ended 置顶。列表复用卡片 stationLampClass 的 10px 状态圆点（运行态带相同呼吸光晕，支持 reduced-motion）并与第一行居中，完成态不重复显示 Completed；其余状态文字与标题同行。运行中和完成项第二行展示并排 16px Agent 头像，按 runId 关联会话投影中的 actors，头像使用各自真实状态；投影未保留的历史项不伪造头像。错误与停止项第二行保留原因或错误。目录成员、排序仍由 journal 摘要决定，头像直接随现有投影更新，不新增轮询。标题 ui-base，辅助内容 ui-sm，行 px-3 py-2、gap-3、hover:bg-hover。标签页使用 16px Workflow 图标。保留查询、排序、截断提示和导航行为。
 
 ### The sidebar run line
 
@@ -2039,7 +2006,7 @@ neutral word in the same subtle colour, `Completed`, `Errored · {phase}` or
 `Stopped · {reason}`; only the lamps carry colour. A rail with more than six stations folds
 to the first running station ± 2 and a `+n` tail. A script that declared no phases draws one
 implicit station named "Workflow". The line is a button: clicking it selects the session
-and opens the run pane, the same jump the composer badge makes. The 32 px row becomes
+and opens the run pane, the same destination as the Activity workflow row. The 32 px row becomes
 52 px per line; a session shows at most two lines (live runs first in launch order, then
 the most recent settled), the rest fold into a `+n` word. The leading 16 px slot (error,
 unread, spinner) is untouched: the run line is a second channel, not a fourth priority.
@@ -2243,3 +2210,7 @@ fields ride the event like the names.
 - The hover halo on a lamp serves the spine only. On the card the lamp is not inside its
   head button in either layout, so hovering a head never haloes the lamp; the running lamp's
   own halo and beat are unaffected.
+
+### 代理完成徽标
+
+Workflow 的 agent 头像与普通 subagent 复用左下角外叠完成勾徽标：`done` 时保留身份色和眼睛，停止头像动态，并显示圆形勾。代理条目末尾不再重复完成勾，保留可打开条目的悬停详情箭头；完成状态仍提供读屏文字。workspace / 未解析车道维持原状态标记。行内 4px、普通条目 8px 左内边距容纳外叠徽标，不改变头像尺寸或文字对齐。验收覆盖运行/完成/失败、可打开/不可打开、普通/紧凑条目、深浅主题，确认只有已完成代理显示徽标且没有裁切。

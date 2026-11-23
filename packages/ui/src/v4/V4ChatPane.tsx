@@ -30,7 +30,6 @@ import { SessionPane } from "@/v4/SessionPane.js";
 import type { SessionOpenTrigger } from "@/lib/sessionOpenArmsTelemetry.js";
 import type {
   ChatSearchResultHighlightRequest,
-  ChatViewSummaryPanelVariant,
   ConversationFindMatchState,
 } from "@/v4/legacyChatViewTypes.js";
 
@@ -48,7 +47,7 @@ export interface V4ChatPaneProps {
   /** 当前 workspace 主 pane 的打开入口，未提供时按 sidebar 统计。 */
   openTrigger?: SessionOpenTrigger;
   provider?: ZCodeProvider;
-  onSessionCreated?: (sessionId: string) => void;
+  onSessionCreated?: (sessionId: string, origin?: "draft-promotion") => void;
   /** deleteSession：删除当前会话后回到 draft。 */
   onSessionDeleted?: () => void;
   /** 草稿态 composer contextHeader（m5，壳层构造下发）。 */
@@ -58,8 +57,6 @@ export interface V4ChatPaneProps {
   gitWorktreeReviewSourceId?: GitChangeSourceId | null;
   gitWorktreeChangeSummary?: { added: number; removed: number } | null;
   activeTaskChangeSummary?: ZCodeTaskChangeSummary | null;
-  summaryPanelVariantOverride?: ChatViewSummaryPanelVariant | null;
-  onSummaryPanelVariantOverrideChange?: (variant: ChatViewSummaryPanelVariant | null) => void;
   onRefreshGit?: () => void;
   onOpenGitReview?: (sourceId?: GitChangeSourceId) => void;
   onOpenBrowserUrl?: (url: string) => void;
@@ -108,8 +105,6 @@ export function V4ChatPane({
   gitWorktreeReviewSourceId,
   gitWorktreeChangeSummary,
   activeTaskChangeSummary,
-  summaryPanelVariantOverride,
-  onSummaryPanelVariantOverrideChange,
   onRefreshGit,
   onOpenGitReview,
   onOpenBrowserUrl,
@@ -174,8 +169,6 @@ export function V4ChatPane({
         gitWorktreeReviewSourceId={gitWorktreeReviewSourceId}
         gitWorktreeChangeSummary={gitWorktreeChangeSummary}
         activeTaskChangeSummary={activeTaskChangeSummary}
-        summaryPanelVariantOverride={summaryPanelVariantOverride}
-        onSummaryPanelVariantOverrideChange={onSummaryPanelVariantOverrideChange}
         onRefreshGit={onRefreshGit}
         onOpenGitReview={onOpenGitReview}
         onOpenBrowserUrl={onOpenBrowserUrl}

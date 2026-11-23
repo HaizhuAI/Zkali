@@ -39,6 +39,9 @@ const SEND_MESSAGE_TOOL_OUTPUT_SCHEMA = {
 
 const sendMessageHandler: ToolHandler = async (input, context) => {
   const parsed = SendMessageRuntimeInputSchema.parse(input) as SendMessageInput;
+  // hook 改写后的输入不再经过 validateInput，这里同样拒绝只有空白的 message。
+  const invalid = validateSendMessageInput(parsed);
+  if (!invalid.result) return invalid;
 
   if (!context.subagentPort?.sendMessage) {
     throw createCoreError(
@@ -81,7 +84,10 @@ export const sendMessageToolEntry: ToolEntry = {
     name: SEND_MESSAGE_TOOL_NAME,
     searchHint: "send messages to agent teammates",
     description: SEND_MESSAGE_PROVIDER_DESCRIPTION,
-    readOnly: false,
+    // 修复原因（ZCT-2119028473032097792）：曾声明为非只读，Plan 闸门直接拒绝，父会话在 Plan 下
+    // 无法唤醒已结束的子代理补发报告；Agent 已是只读。子代理的工具由子会话自己的权限模式判定，
+    // 恢复时与新开用同一规则按父会话当前状态重算，所以这里与 Agent 一致声明只读。
+    readOnly: true,
     destructive: false,
     concurrentSafe: true,
     timeoutMs: 10000,
@@ -135,17 +141,18 @@ export const sendMessageToolEntry: ToolEntry = {
 };
 
 /**
- * 修复原因：只有空白的 message 能通过 provider JSON Schema（minLength 1），runtime schema 的拒绝
- * 要到 handler 才生效——Hook、权限都已跑过，模型收到的是原始 ZodError JSON。这里在 Hook 之前
- * 用同一份 runtime schema 判定，按工具输入错误返回。
+ * 修复原因：只有空白的 message 能通过 provider JSON Schema（minLength 1），child 只收到 message、会拒收它，
+ * 待发队列却回报 queued，永远送不到；原来 runtime schema 的拒绝要到 handler 才生效——Hook、权限都已跑过，
+ * 模型收到的是原始 ZodError JSON。这里在 Hook 之前按工具输入错误返回。检查不写进 runtime schema：
+ * runtime schema 失败会先返回 InputValidationError（docs/model-tool-call-validation.md），固定文字会变成 JSON。
  */
 function validateSendMessageInput(input: unknown): ToolInputValidationResult {
-  const parsed = SendMessageRuntimeInputSchema.safeParse(input);
-  if (parsed.success) return { result: true };
+  const message = (input as { message?: unknown } | null)?.message;
+  if (typeof message !== "string" || message.trim().length > 0) return { result: true };
   return {
     result: false,
     errorCode: SEND_MESSAGE_INVALID_INPUT_ERROR_CODE,
-    message: parsed.error.issues.map((issue) => issue.message).join("; "),
+    message: "message must not be empty",
   };
 }
 

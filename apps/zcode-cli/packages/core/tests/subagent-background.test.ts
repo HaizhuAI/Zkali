@@ -1,7 +1,13 @@
+import {
+  createDeferred,
+  waitForCondition,
+  createSubagentRunRequest,
+} from "./subagent-background-fixture.js";
 import { describe, expect, it, vi } from "vitest";
 import {
   HookEventName,
   SessionEventType,
+  createSessionEvent,
   createSessionId,
   createTurnId,
   modelMessageContentToText,
@@ -1480,6 +1486,8 @@ describe("subagent background notifications", () => {
     );
     expect(notification).not.toContain("<error>");
     expect(notification).not.toContain("Turn execution failed");
+    // child 没写过正文，失败通知不带部分报告。
+    expect(notification).not.toContain("<result>");
     // 失败原文结构化下发，App 不从 summary 文本解析。
     expect(notificationOriginMetas).toEqual([
       expect.objectContaining({
@@ -1500,6 +1508,126 @@ describe("subagent background notifications", () => {
         }),
       }),
     );
+  });
+
+  it("adds the partial report to failed background notifications", async () => {
+    // 回归：后台失败通知原来不带 <result>。现在取本次运行最近一段非空 step 正文，
+    // 原样放进 <result>（不套框架）；sink 转发的其他 session 事件不算。
+    const notifications: string[] = [];
+    const port = createExploreSubagentPort({
+      createAgentId: () => "agent_background_partial",
+      emitParentEvent: async () => {},
+      enqueueParentTaskNotification: ({ text }) => {
+        notifications.push(text);
+      },
+      runExploreAgent: async (request) => {
+        await request.onSessionReady?.();
+        request.onEvent?.(subagentModelStep(request.sessionId, "Interim findings: module A."));
+        request.onEvent?.(subagentModelStep(request.sessionId, ""));
+        request.onEvent?.(
+          subagentModelStep(createSessionId("subagent-background-other"), "Foreign findings."),
+        );
+        throw new Error("Requests are too frequent.");
+      },
+    });
+
+    await port.start?.(
+      createSubagentRunRequest({
+        sessionId: createSessionId("subagent-background-partial"),
+        turnId: createTurnId("subagent-background-partial-turn"),
+      }),
+    );
+    await waitForCondition(() => notifications.length === 1);
+
+    expect(notifications[0]).toContain("<status>failed</status>");
+    expect(notifications[0]).toContain("<result>Interim findings: module A.</result>");
+    expect(notifications[0]).not.toContain("Foreign findings.");
+    expect(notifications[0]).not.toContain("[Subagent hand-back]");
+  });
+
+  it("adds the partial report when an auto-backgrounded local agent fails", async () => {
+    // 转后台前写的正文也属于本次运行，转后台后失败时同样带上。
+    const childGate = createDeferred<void>();
+    const notifications: string[] = [];
+    const port = createExploreSubagentPort({
+      autoBackgroundMs: 1,
+      createAgentId: () => "agent_auto_background_partial",
+      emitParentEvent: async () => {},
+      enqueueParentTaskNotification: ({ text }) => {
+        notifications.push(text);
+      },
+      runExploreAgent: async (request) => {
+        await request.onSessionReady?.();
+        request.onEvent?.(subagentModelStep(request.sessionId, "Findings before backgrounding."));
+        await childGate.promise;
+        throw new Error("Requests are too frequent.");
+      },
+    });
+
+    const output = await port.run(
+      createSubagentRunRequest({
+        sessionId: createSessionId("subagent-auto-background-partial"),
+        turnId: createTurnId("subagent-auto-background-partial-turn"),
+      }),
+    );
+    expect(output).toMatchObject({ status: "async_launched" });
+    childGate.resolve();
+    await waitForCondition(() => notifications.length === 1);
+
+    expect(notifications[0]).toContain("<status>failed</status>");
+    expect(notifications[0]).toContain("<result>Findings before backgrounding.</result>");
+  });
+
+  it("refuses SendMessage while a stopped background agent is still stopping", async () => {
+    // 回归：停止先提交 killed，child 收到中止后可能还没结束；这时恢复会在同一个
+    // child session 上同时跑两个 runtime。child 结束后同一 agentId 可以正常恢复。
+    const prompts: string[] = [];
+    let releaseFirstRun!: () => void;
+    const port = createExploreSubagentPort({
+      createAgentId: () => "agent_stop_then_send",
+      emitParentEvent: async () => {},
+      enqueueParentTaskNotification: () => {},
+      runExploreAgent: async (request) => {
+        prompts.push(request.prompt);
+        await request.onSessionReady?.();
+        if (prompts.length > 1) {
+          return { events: [], response: "Resumed.", traceId: "trace_stop_then_send" };
+        }
+        await new Promise<void>((resolve) => {
+          releaseFirstRun = resolve;
+        });
+        throw new Error("The stopped run finally ended");
+      },
+    });
+    const sessionId = createSessionId("subagent-stop-then-send");
+    const turnId = createTurnId("subagent-stop-then-send-turn");
+    const continueRequest = {
+      message: "Continue.",
+      parentToolCallId: "call_continue_after_stop",
+      sessionId,
+      to: "agent_stop_then_send",
+      trace: { traceId: "trace_stop_then_send_parent", sessionId, turnId },
+      turnId,
+      workingDirectory: "/tmp/zcode-subagent-auto-background",
+      workspaceRoot: "/tmp/zcode-subagent-auto-background",
+    };
+
+    await port.start?.(createSubagentRunRequest({ sessionId, turnId }));
+    await port.stopTask?.("agent_stop_then_send", { initiator: "model" });
+
+    const refused = await port.sendMessage?.(continueRequest);
+    expect(refused).toMatchObject({ status: "failed" });
+    expect(refused?.error).toContain("its previous run is still stopping");
+    expect(prompts).toHaveLength(1);
+    expect((await port.getTask?.("agent_stop_then_send"))?.status).toBe("killed");
+
+    releaseFirstRun();
+    // 桩抛错、执行 promise reject、port 移除运行记录都只经过微任务，等一个宏任务就全部完成。
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const resumed = await port.sendMessage?.(continueRequest);
+    expect(resumed).toMatchObject({ status: "success", delivery: "resumed_background" });
+    expect((await port.waitForTask?.("agent_stop_then_send"))?.status).toBe("completed");
+    expect(prompts).toEqual(["Run slowly", "Continue."]);
   });
 
   it("queues parent notification before emitting background completion", async () => {
@@ -1690,77 +1818,6 @@ describe("subagent background notifications", () => {
     expect(task?.notified).not.toBe(true);
   });
 
-  it("cancels auto-background timeout when a foreground local agent completes first", async () => {
-    const sessionId = createSessionId("subagent-auto-background-cancelled");
-    const turnId = createTurnId("subagent-auto-background-cancelled-turn");
-    const blockedArtifactWrite = createDeferred<void>();
-    let outputWriteStarted = false;
-    const notifications: string[] = [];
-    const actualFs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
-    vi.resetModules();
-    vi.doMock("node:fs/promises", () => ({
-      ...actualFs,
-      writeFile: vi.fn(async (...args: Parameters<typeof actualFs.writeFile>) => {
-        const [path] = args;
-        if (String(path).endsWith("/output.txt") && !outputWriteStarted) {
-          outputWriteStarted = true;
-          await blockedArtifactWrite.promise;
-        }
-        return actualFs.writeFile(...args);
-      }),
-    }));
-
-    try {
-      const { createExploreSubagentPort: createPortWithBlockedArtifactWrite } =
-        await import("../src/subagent/runner.js");
-      const port = createPortWithBlockedArtifactWrite({
-        autoBackgroundMs: 1,
-        createAgentId: () => "agent_auto_background_cancelled",
-        emitParentEvent: async () => {},
-        enqueueParentTaskNotification: ({ text }) => {
-          notifications.push(text);
-        },
-        runExploreAgent: async (request) => {
-          await request.onSessionReady?.();
-          return {
-            events: [],
-            response: "foreground child beat timeout",
-            traceId: "trace_subagent_auto_background_cancelled",
-          };
-        },
-      });
-
-      const outputPromise = port.run(createSubagentRunRequest({ sessionId, turnId }));
-      await waitForCondition(() => outputWriteStarted);
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      const taskWhileArtifactWriteIsPending = await port.getTask?.(
-        "agent_auto_background_cancelled",
-      );
-      blockedArtifactWrite.resolve();
-
-      const output = await outputPromise;
-      expect(output).toMatchObject({
-        status: "completed",
-        agentId: "agent_auto_background_cancelled",
-      });
-      expect(taskWhileArtifactWriteIsPending).toMatchObject({
-        status: "running",
-        isBackgrounded: false,
-      });
-
-      const task = await port.getTask?.("agent_auto_background_cancelled");
-      expect(task).toMatchObject({
-        status: "completed",
-        isBackgrounded: false,
-      });
-      expect(notifications).toEqual([]);
-    } finally {
-      blockedArtifactWrite.resolve();
-      vi.doUnmock("node:fs/promises");
-      vi.resetModules();
-    }
-  });
-
   it("keeps foreground local agents inline when auto-background timeout is not configured", async () => {
     const sessionId = createSessionId("subagent-no-auto-background");
     const turnId = createTurnId("subagent-no-auto-background-turn");
@@ -1906,18 +1963,91 @@ describe("subagent background notifications", () => {
     ).rejects.toThrow("Idle-time tasks do not support background agents");
     expect(await port.getTask?.("agent_profile_background_turn_execution_model")).toBeUndefined();
   });
-});
 
-function createDeferred<T>(): {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-} {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((innerResolve) => {
-    resolve = innerResolve;
+  it("starts an always-background launch in the background without a background request", async () => {
+    const gate = createDeferred<void>();
+    const port = createExploreSubagentPort({
+      createAgentId: () => "agent_always_background",
+      emitParentEvent: async () => {},
+      runExploreAgent: async (request) => {
+        await request.onSessionReady?.();
+        await gate.promise;
+        return { events: [], response: "done", traceId: "trace_always_background" };
+      },
+    });
+    try {
+      const output = await port.launch({
+        ...createSubagentRunRequest({
+          sessionId: createSessionId("subagent-always-background"),
+          turnId: createTurnId("subagent-always-background-turn"),
+        }),
+        alwaysBackground: true,
+        runInBackground: false,
+      });
+      expect(output.status).toBe("async_launched");
+      expect((await port.getTask?.("agent_always_background"))?.isBackgrounded).toBe(true);
+    } finally {
+      gate.resolve();
+    }
   });
-  return { promise, resolve };
-}
+
+  // Agent 总在后台时每个调用都“请求后台”。禁止后台的执行若沿用上面两条的报错，每个 Agent 调用都会失败，
+  // 所以总在后台时改为前台运行，不报错（07-subagent.md「ZCode 当前实现」）。
+  it.each([
+    ["the default agent", undefined],
+    ["a profile that asks for background", "Background Reviewer"],
+  ])(
+    "runs %s in the foreground when an always-background launch forbids background",
+    async (_label, agentType) => {
+      const modelOverride = {
+        selection: { providerId: "account:zai-offpeak-idle-plan", modelId: "GLM-5.2" },
+        background: "deny" as const,
+      };
+      const calls: unknown[] = [];
+      const port = createExploreSubagentPort({
+        createAgentId: () => "agent_always_background_denied",
+        emitParentEvent: async () => {},
+        profiles: [
+          {
+            background: true,
+            description: "Background reviewer",
+            name: "Background Reviewer",
+            source: "user",
+            systemPrompt: "Review in background.",
+            tools: ["Read"],
+          },
+        ],
+        runExploreAgent: async (request, options) => {
+          calls.push(options);
+          await request.onSessionReady?.();
+          return {
+            events: [],
+            response: "foreground report",
+            traceId: "trace_always_background_denied",
+          };
+        },
+      });
+
+      const output = await port.launch(
+        {
+          ...createSubagentRunRequest({
+            sessionId: createSessionId("subagent-always-background-denied"),
+            turnId: createTurnId("subagent-always-background-denied-turn"),
+          }),
+          ...(agentType ? { agentType } : {}),
+          alwaysBackground: true,
+        },
+        { signal: new AbortController().signal, modelOverride },
+      );
+
+      expect(output).toMatchObject({
+        status: "completed",
+        agentId: "agent_always_background_denied",
+      });
+      expect(calls).toEqual([expect.objectContaining({ modelOverride })]);
+    },
+  );
+});
 
 function modelTextResult(text: string) {
   return {
@@ -1941,15 +2071,6 @@ async function waitForMacrotask(): Promise<void> {
   await new Promise<void>((resolve) => {
     setTimeout(resolve, 0);
   });
-}
-
-async function waitForCondition(predicate: () => boolean | Promise<boolean>): Promise<void> {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 1000) {
-    if (await predicate()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error("Timed out waiting for condition");
 }
 
 async function waitForAbort(signal?: AbortSignal): Promise<void> {
@@ -2013,26 +2134,13 @@ function recordSetTimeoutCalls(): {
   };
 }
 
-function createSubagentRunRequest(input: {
-  sessionId: SessionId;
-  turnId: ReturnType<typeof createTurnId>;
-}) {
-  return {
-    agentType: "general-purpose",
-    description: "Auto background test",
-    parentToolCallId: "call_auto_background",
-    prompt: "Run slowly",
-    sessionId: input.sessionId,
-    trace: {
-      traceId: "trace_subagent_auto_background_parent",
-      spanId: "span_subagent_auto_background_parent",
-      sessionId: input.sessionId,
-      turnId: input.turnId,
-    },
-    turnId: input.turnId,
-    workingDirectory: "/tmp/zcode-subagent-auto-background",
-    workspaceRoot: "/tmp/zcode-subagent-auto-background",
-  };
+// 子代理自己主循环的一个模型 step（querySource: "subagent"），runner 从这类事件取部分报告。
+function subagentModelStep(sessionId: SessionId, text: string) {
+  return createSessionEvent(SessionEventType.ModelComplete, sessionId, {
+    content: text,
+    querySource: "subagent",
+    toolCallCount: 1,
+  });
 }
 
 class RecordingSessionStore {

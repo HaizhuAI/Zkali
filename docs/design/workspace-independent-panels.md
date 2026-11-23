@@ -34,7 +34,7 @@ Window / Sidebar / transparent body layout
 - macOS 窗口根背景使用 `bg-background-alt`；Windows、Linux 和 Web 继续使用 `bg-background-win-alt`。
 - Side Pane 的 launcher/标签栏/内容共用独立 `bg-background` 外框，两个面板顶部底部对齐。
 - 内部面板默认 `xl` 圆角、`border-border` 弱边框；贴 Windows 系统外沿的一侧继续遵循已有 native corner / maximized 规则。布局外框不计入内容圆角层级。
-- 对话与 Side Pane 间保留 3px 透明间距，间距承载 resize handle；关闭 Side Pane 时不保留间距，会话恢复填满。
+- 对话与 Side Pane 间保留 3px 透明间距，间距承载 resize handle；2px 指示线严格居中于两面板边界之间（左右各 0.5px），复用手柄的 flex 居中，不加固定左偏移；关闭 Side Pane 时不保留间距，会话恢复填满。
 - 工作区 Sidebar、Terminal 保留 4px 透明拖拽热区，Side Pane 使用 3px，指示线宽 2px，使用第三层文字色 `foreground-subtlest/50`（在主题色基础上再降低至 50% 不透明度）。默认隐藏，hover、键盘聚焦和拖动时显示。指示线不使用 mask，竖线恢复沿面板高度延伸、横线恢复沿面板宽度延伸，两端按面板圆角内缩，端点圆润，拖拽、间距和手机隐藏规则不变。
 
 - 保留 `workspace-body-layout`、`conversation-column`、`browser` 和会话/终端的现有持久化 key、最小宽度、拖动和显式关闭边界。Side Pane 不因开关或主视图切换卸载，Browser Guest 截图承载保持原路径。
@@ -99,7 +99,7 @@ Windows/Linux 复用同一内联窗控组件，28px 按钮、16px 图标、2px �
 
 - Windows WorkspaceHeader 与 macOS 共用常规操作区，移除终端右侧独立的 caption 下箭头菜单及分隔占位；保留标准帮助入口、系统窗口按钮预留。Linux 和设置页的菜单入口不变。
 
-- Windows 普通窗口和最大化窗口的会话、终端、Side Pane 统一使用 5px 布局圆角和完整 1px 边框：面板有 4px 外层留白，不再直接承担系统窗口外沿。能力未知时采用相同默认值；Windows 10 既有外侧直角规则暂保留，macOS 按版本使用 Sequoia 6px / Tahoe 12px。
+- Windows 普通窗口和最大化窗口的会话、终端、Side Pane 统一使用 `rounded-md`（6px）布局圆角和完整 1px 边框：面板有外层留白（尺寸以本文开头的平台规则为准），不再直接承担系统窗口外沿。能力未知时采用相同默认值；Windows 10 既有外侧直角规则暂保留，macOS 按版本使用 Sequoia 6px / Tahoe 12px。
 
 - Windows 与 macOS 主工作区统一保留顶部、右侧、底部 4px 外层 padding；侧栏收起后左侧同样保留 4px。侧栏拖拽线端点同步计入这层留白。Linux、Web 和手机布局保持原有规则，Windows caption 控制区仍按原规则预留。
 

@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import type { Logger, LoggerFactory } from "@zcode/contracts";
+import { withFileLock } from "@zcode/shared/node";
 import {
   createConfig,
+  createConfigWithPluginMigrations,
   resolveWorkspaceStorageDir,
   updateUiLocaleInFileConfig,
 } from "../src/config/index.js";
@@ -13,11 +16,263 @@ import {
   updatePluginEnabledInFileConfig,
   updatePluginOptionsInFileConfig,
 } from "../src/config/file-config.adapter.js";
+import * as fsPromises from "node:fs/promises";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, rename: vi.fn(actual.rename) };
+});
+
+vi.mock("../src/config/file-config.adapter.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/config/file-config.adapter.js")>();
+  return { ...actual, loadFileConfig: vi.fn(actual.loadFileConfig) };
+});
+vi.mock("@zcode/shared/node", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@zcode/shared/node")>();
+  return { ...actual, withFileLock: vi.fn(actual.withFileLock) };
+});
+
+function captureConfigLogger() {
+  const warn = vi.fn();
+  const logger: Logger = { debug() {}, info() {}, error() {}, warn, child: () => logger };
+  const loggerFactory: LoggerFactory = {
+    createLogger: () => logger,
+    withContext: () => logger,
+    setLevel() {},
+  };
+  return { loggerFactory, warn };
+}
+
 describe("config adapters", () => {
+  it("resets legacy visualize flags per config once and preserves later opt-in", async () => {
+    const root = await mkdtemp(join(tmpdir(), "zcode-visualize-migration-"));
+    const userConfigPath = join(root, "user.json");
+    const projectConfigPath = join(root, ".zcode", "config.json");
+    const id = "visualize@zcode-plugins-official";
+    const original = {
+      keep: "unknown",
+      plugins: { enabledPlugins: { [id]: true, "other@fixture": true } },
+    };
+    try {
+      await mkdir(join(root, ".zcode"));
+      await writeFile(userConfigPath, JSON.stringify(original));
+      await writeFile(projectConfigPath, JSON.stringify(original));
+      const options = { env: {}, userConfigPath, workingDirectory: root };
+      const migrated = await createConfigWithPluginMigrations(options);
+      expect(migrated.config.plugins.enabledPlugins[id]).toBe(false);
+      for (const path of [userConfigPath, projectConfigPath]) {
+        expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
+          ...original,
+          plugins: {
+            visualizeDefaultOffMigrated: true,
+            enabledPlugins: { [id]: false, "other@fixture": true },
+          },
+        });
+      }
+      await updatePluginEnabledInFileConfig(projectConfigPath, id, true);
+      const bytes = await readFile(projectConfigPath, "utf8");
+      const reloaded = await Promise.all(
+        Array.from({ length: 4 }, () => createConfigWithPluginMigrations(options)),
+      );
+      expect(reloaded.every((result) => result.config.plugins.enabledPlugins[id])).toBe(true);
+      expect(await readFile(projectConfigPath, "utf8")).toBe(bytes);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves a first enable racing with migration and other config writes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "zcode-visualize-race-"));
+    const userConfigPath = join(root, "user.json");
+    const id = "visualize@zcode-plugins-official";
+    try {
+      const options = { env: {}, userConfigPath };
+      await createConfigWithPluginMigrations(options);
+      await expect(readFile(userConfigPath)).rejects.toMatchObject({ code: "ENOENT" });
+      await writeFile(
+        userConfigPath,
+        JSON.stringify({ plugins: { enabledPlugins: { [id]: true } } }),
+      );
+      await Promise.all([
+        createConfigWithPluginMigrations(options),
+        updatePluginEnabledInFileConfig(userConfigPath, id, true),
+        updateUiLocaleInFileConfig(userConfigPath, "zh-CN"),
+      ]);
+      const result = await createConfigWithPluginMigrations(options);
+      expect(result.config.plugins.enabledPlugins[id]).toBe(true);
+      expect(result.config.ui.locale).toBe("zh-CN");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["rename", "lock"])(
+    "continues with a disabled layer when migration %s fails",
+    async (stage) => {
+      const root = await mkdtemp(join(tmpdir(), "zcode-visualize-write-failure-"));
+      const userConfigPath = join(root, "user.json");
+      const id = "visualize@zcode-plugins-official";
+      const original = JSON.stringify({ plugins: { enabledPlugins: { [id]: true } } });
+      const { loggerFactory, warn } = captureConfigLogger();
+      const code = stage === "rename" ? "EACCES" : "ZCODE_FILE_LOCK_TIMEOUT";
+      try {
+        await writeFile(userConfigPath, original);
+        const operation =
+          stage === "rename" ? vi.mocked(fsPromises.rename) : vi.mocked(withFileLock);
+        operation.mockRejectedValueOnce(Object.assign(new Error("migration blocked"), { code }));
+        try {
+          const result = await createConfigWithPluginMigrations({
+            env: {},
+            userConfigPath,
+            loggerFactory,
+          });
+          expect(result.config.plugins.enabledPlugins[id]).toBe(false);
+          expect(result.configPort.getAll().plugins.enabledPlugins[id]).toBe(false);
+          expect(warn).toHaveBeenCalledExactlyOnceWith(
+            expect.any(String),
+            expect.objectContaining({ configPath: userConfigPath, errorCode: code }),
+          );
+        } finally {
+          operation.mockRestore();
+        }
+        expect(await readFile(userConfigPath, "utf8")).toBe(original);
+        expect(await readdir(root)).toEqual(["user.json"]);
+        expect(
+          (await createConfigWithPluginMigrations({ env: {}, userConfigPath })).config.plugins
+            .enabledPlugins[id],
+        ).toBe(false);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.each(["user", "project", "ancestor", "explicit"])(
+    "keeps scope priority when the %s migration fails",
+    async (scope) => {
+      const root = await mkdtemp(join(tmpdir(), "zcode-visualize-layer-failure-"));
+      const id = "visualize@zcode-plugins-official";
+      const userConfigPath = join(root, "user.json");
+      const parentPath = join(root, ".zcode", "config.json");
+      const child = join(root, "child");
+      const childPath = join(child, ".zcode", "config.json");
+      const explicitPath = join(root, "explicit.json");
+      const paths = {
+        user: userConfigPath,
+        project: parentPath,
+        ancestor: parentPath,
+        explicit: explicitPath,
+      };
+      const failedPath = paths[scope as keyof typeof paths];
+      const config = (migrated: boolean) =>
+        JSON.stringify({
+          plugins: {
+            ...(migrated ? { visualizeDefaultOffMigrated: true } : {}),
+            enabledPlugins: { [id]: true, "other@fixture": true },
+          },
+        });
+      const { loggerFactory, warn } = captureConfigLogger();
+      try {
+        await mkdir(join(root, ".git"));
+        await mkdir(join(root, ".zcode"));
+        await mkdir(join(child, ".zcode"), { recursive: true });
+        await writeFile(userConfigPath, config(true));
+        await writeFile(parentPath, config(true));
+        if (scope === "ancestor") await writeFile(childPath, config(true));
+        await writeFile(failedPath, config(false));
+        vi.mocked(fsPromises.rename).mockRejectedValueOnce(
+          Object.assign(new Error("read only"), { code: "EROFS" }),
+        );
+        try {
+          const result = await createConfigWithPluginMigrations({
+            env: {},
+            userConfigPath,
+            workingDirectory: scope === "ancestor" ? child : root,
+            ...(scope === "explicit"
+              ? {
+                  projectConfigPath: explicitPath,
+                  cliOverrides: { plugins: { enabledPlugins: { [id]: true } } },
+                }
+              : {}),
+            loggerFactory,
+          });
+          expect(result.config.plugins.enabledPlugins[id]).toBe(scope !== "project");
+          expect(result.config.plugins.enabledPlugins["other@fixture"]).toBe(true);
+          expect(warn).toHaveBeenCalledExactlyOnceWith(
+            expect.any(String),
+            expect.objectContaining({ configPath: failedPath, errorCode: "EROFS" }),
+          );
+          expect(await readFile(failedPath, "utf8")).toBe(config(false));
+        } finally {
+          vi.mocked(fsPromises.rename).mockRestore();
+        }
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("warns once when the same file is used by user and project scopes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "zcode-visualize-shared-config-"));
+    const userConfigPath = join(root, "config.json");
+    const id = "visualize@zcode-plugins-official";
+    const { loggerFactory, warn } = captureConfigLogger();
+    try {
+      await writeFile(
+        userConfigPath,
+        JSON.stringify({ plugins: { enabledPlugins: { [id]: true } } }),
+      );
+      vi.mocked(fsPromises.rename).mockRejectedValue(
+        Object.assign(new Error("read only"), { code: "EROFS" }),
+      );
+      const result = await createConfigWithPluginMigrations({
+        env: {},
+        userConfigPath,
+        projectConfigPath: userConfigPath,
+        loggerFactory,
+      });
+      expect(result.config.plugins.enabledPlugins[id]).toBe(false);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.mocked(fsPromises.rename).mockRestore();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["invalid", "unchanged", "migration"])(
+    "reads config once and reports diagnostics once: %s",
+    async (kind) => {
+      const root = await mkdtemp(join(tmpdir(), "zcode-config-single-read-"));
+      const userConfigPath = join(root, "user.json");
+      const { loggerFactory, warn } = captureConfigLogger();
+      try {
+        await writeFile(
+          userConfigPath,
+          kind === "invalid"
+            ? "{"
+            : JSON.stringify({
+                plugins: {
+                  ...(kind === "unchanged" ? { visualizeDefaultOffMigrated: true } : {}),
+                  enabledPlugins: { "visualize@zcode-plugins-official": true },
+                },
+                ...(kind === "migration"
+                  ? { mcp: { servers: { broken: { type: "stdio", args: [] } } } }
+                  : {}),
+              }),
+        );
+        vi.mocked(loadFileConfig).mockClear();
+        await createConfigWithPluginMigrations({ env: {}, userConfigPath, loggerFactory });
+        expect(loadFileConfig).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledTimes(kind === "unchanged" ? 0 : 1);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   it.each(["zcode.json", ".zcode/config.json", "explicit-project.json"])(
     "restricts project runtime parameters while retaining extension settings in %s",
     async (fileName) => {
@@ -102,7 +357,7 @@ describe("config adapters", () => {
         expect(result.config.plugins).toEqual({
           ...baseline.config.plugins,
           enabledPlugins: { "demo@fixture": true },
-          options: { "demo@fixture": { format: "compact" } },
+          options: {},
         });
         expect(result.config.mcp.servers.demo).toMatchObject({
           command: "node",
@@ -300,7 +555,7 @@ describe("config adapters", () => {
     }
   });
 
-  it("deep merges Workspace Plugin enablement and options over User config", async () => {
+  it("merges Workspace Plugin enablement without trusting repository options", async () => {
     const dir = await mkdtemp(join(tmpdir(), "zcode-config-workspace-plugins-"));
     const userPath = join(dir, "user.json");
     const workspacePath = join(dir, ".zcode", "config.json");
@@ -357,8 +612,7 @@ describe("config adapters", () => {
       expect(result.config.plugins.options).toEqual({
         "workspace-plugin@fixture": {
           inherited: "user",
-          overridden: "workspace",
-          workspaceOnly: true,
+          overridden: "user",
         },
       });
       expect(result.sources.project.paths).toEqual([workspacePath]);
@@ -366,16 +620,16 @@ describe("config adapters", () => {
         "user-only@fixture": "user",
         "workspace-plugin@fixture": "workspace",
       });
+      // 项目目录只作为待信任候选出现在 sources 里，可执行配置只有用户目录。
       expect(result.sources.plugins.dirs).toEqual({
         user: [join(dir, "user-plugin")],
-        workspace: [],
+        workspace: [join(dir, "workspace-plugin"), join(dir, "absolute-workspace-plugin")],
       });
       expect(result.config.plugins.dirs).toEqual([join(dir, "user-plugin")]);
       expect(result.sources.plugins.options).toEqual({
         "workspace-plugin@fixture": {
           inherited: "user",
-          overridden: "workspace",
-          workspaceOnly: "workspace",
+          overridden: "user",
         },
       });
     } finally {
@@ -384,7 +638,90 @@ describe("config adapters", () => {
   });
 
   it.each(["zcode.json", ".zcode/config.json", "explicit-project.json"])(
-    "ignores plugin directories from project config %s",
+    "strips plugin options before validating project config %s",
+    async (fileName) => {
+      const root = await mkdtemp(join(tmpdir(), "zcode-project-plugin-options-"));
+      const path = join(root, fileName);
+      try {
+        await mkdir(join(root, ".git"));
+        await mkdir(join(root, ".zcode"));
+        const original = JSON.stringify({
+          plugins: {
+            enabledPlugins: { "runner@fixture": true },
+            options: { "runner@fixture": { pythonPath: "./repository-runner", invalid: {} } },
+          },
+          mcp: { servers: { kept: { type: "http", url: "https://mcp.example.com" } } },
+        });
+        await writeFile(path, original);
+        const result = createConfig({
+          env: {},
+          skipUserConfig: true,
+          workingDirectory: root,
+          ...(fileName === "explicit-project.json" ? { projectConfigPath: path } : {}),
+        });
+        expect(result.sources.project.loaded).toBe(true);
+        expect(result.config.plugins.options).toEqual({});
+        expect(result.sources.plugins.options).toEqual({});
+        expect(
+          result.sources.plugins.optionLayers?.every(
+            (layer) => Object.keys(layer.options).length === 0,
+          ),
+        ).toBe(true);
+        expect(result.config.plugins.enabledPlugins["runner@fixture"]).toBe(true);
+        expect(result.config.mcp.servers.kept).toBeDefined();
+        expect(await readFile(path, "utf8")).toBe(original);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("merges skill and command toggles by path across user and project config", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "zcode-config-toggle-merge-"));
+    const userPath = join(dir, "user.json");
+    const workspacePath = join(dir, ".zcode", "config.json");
+    const userSkill = join(dir, "user", "SKILL.md");
+    const workspaceSkill = join(dir, "workspace", "SKILL.md");
+    const userCommand = join(dir, "user", "command.md");
+    const workspaceCommand = join(dir, "workspace", "command.md");
+    try {
+      await mkdir(join(dir, ".zcode"), { recursive: true });
+      await writeFile(
+        userPath,
+        JSON.stringify({
+          skills: { [userSkill]: { enable: false } },
+          command: { [userCommand]: { enable: false } },
+        }),
+      );
+      await writeFile(
+        workspacePath,
+        JSON.stringify({
+          skills: { [workspaceSkill]: { enable: false } },
+          command: { [workspaceCommand]: { enable: false } },
+        }),
+      );
+      const result = createConfig({
+        env: {},
+        userConfigPath: userPath,
+        projectConfigPath: workspacePath,
+        workingDirectory: dir,
+      });
+      // 修复前项目层的开关整体替换了用户层的开关，用户停用的 skill 与命令重新出现。
+      expect(result.config.skillOverrides).toEqual({
+        [userSkill]: { enable: false },
+        [workspaceSkill]: { enable: false },
+      });
+      expect(result.config.commandOverrides).toEqual({
+        [userCommand]: { enable: false },
+        [workspaceCommand]: { enable: false },
+      });
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
+  it.each(["zcode.json", ".zcode/config.json", "explicit-project.json"])(
+    "keeps plugin directories from project config %s as untrusted candidates only",
     async (fileName) => {
       const dir = await mkdtemp(join(tmpdir(), "zcode-project-plugin-dirs-"));
       const projectConfigPath = join(dir, fileName);
@@ -403,14 +740,39 @@ describe("config adapters", () => {
             : { workingDirectory: dir }),
         });
         expect(result.sources.project.loaded).toBe(true);
+        // 可执行配置里永远没有项目插件目录；候选按配置文件所在项目目录解析相对路径。
         expect(result.config.plugins.dirs).toEqual([]);
-        expect(result.sources.plugins.dirs.workspace).toEqual([]);
+        expect(result.sources.plugins.dirs.workspace).toEqual([
+          join(dir, "plugin"),
+          join(dir, "absolute-plugin"),
+        ]);
         expect(JSON.parse(await readFile(projectConfigPath, "utf8")).plugins.dirs).toHaveLength(2);
       } finally {
         await rm(dir, { force: true, recursive: true });
       }
     },
   );
+
+  it("ignores an invalid project plugins.dirs value without dropping other declarations", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "zcode-project-plugin-dirs-invalid-"));
+    try {
+      await mkdir(join(dir, ".git"));
+      await mkdir(join(dir, ".zcode"));
+      await writeFile(
+        join(dir, ".zcode", "config.json"),
+        JSON.stringify({
+          plugins: { dirs: "./plugin", enabledPlugins: { "demo@inline": false } },
+          mcp: { servers: { local: { type: "stdio", command: "node" } } },
+        }),
+      );
+      const result = createConfig({ env: {}, skipUserConfig: true, workingDirectory: dir });
+      expect(result.sources.plugins.dirs.workspace).toEqual([]);
+      expect(result.config.plugins.enabledPlugins["demo@inline"]).toBe(false);
+      expect(Object.keys(result.config.mcp.servers)).toContain("local");
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
 
   it("keeps Marketplace declarations in the User config layer", async () => {
     const dir = await mkdtemp(join(tmpdir(), "zcode-config-workspace-marketplaces-"));

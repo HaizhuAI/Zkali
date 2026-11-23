@@ -33,6 +33,14 @@ import type { ToolPermissionRulePolicy } from "../tool/types.js";
 /** 草稿免确认的规则号。 */
 const WORKFLOW_DRAFT_PREAPPROVED_RULE_ID = "tool.workflowDraft.preapproved";
 
+/**
+ * `disallowedTools` 拒绝整个工具时模型看到的文字（2026-11-14，原来是 `Tool X is explicitly disallowed`）。
+ * 项目权限规则的拒绝可能只针对部分输入（路径、命令），文字不变，不能说成整个工具被拒绝。
+ */
+function toolDeniedMessage(toolName: string): string {
+  return `Permission to use ${toolName} has been denied.`;
+}
+
 export interface PermissionContext {
   toolName: string;
   input: unknown;
@@ -122,7 +130,7 @@ export class PermissionService {
           context,
           capability,
           "rule.disallowedTools",
-          `Tool ${context.toolName} is explicitly disallowed`,
+          toolDeniedMessage(context.toolName),
         );
       }
 
@@ -163,7 +171,7 @@ export class PermissionService {
         context,
         capability,
         "rule.disallowedTools",
-        `Tool ${context.toolName} is explicitly disallowed`,
+        toolDeniedMessage(context.toolName),
       );
     }
 
@@ -289,6 +297,14 @@ export class PermissionService {
       );
     }
 
+    if (capability.permission?.confirmationHandledByTool) {
+      return this.allow(
+        context,
+        capability,
+        "tool.explicitConfirmation",
+        "Tool collects explicit confirmation before mutations",
+      );
+    }
     if (context.mode === "edit") {
       return this.checkEditMode(context, capability);
     }
@@ -415,7 +431,7 @@ export class PermissionService {
         context,
         capability,
         "rule.disallowedTools",
-        `Tool ${context.toolName} is explicitly disallowed`,
+        toolDeniedMessage(context.toolName),
       );
     }
     if (this.matchesProjectRules(projectRules, "deny", context, capability, rulePolicy)) {
@@ -711,6 +727,7 @@ export class PermissionService {
         !this.isReadOnlyTool(context.toolName),
       permissionCapabilityGroup: toolCapability?.permissionCapabilityGroup,
       permissionName: toolCapability?.permission?.permission,
+      permission: toolCapability?.permission,
     };
   }
 
@@ -763,6 +780,7 @@ export class PermissionService {
 }
 
 interface ResolvedPermissionCapability {
+  permission?: ToolPermissionSpec;
   allowedInPlanMode: boolean;
   alwaysAsk: boolean;
   readOnly: boolean;

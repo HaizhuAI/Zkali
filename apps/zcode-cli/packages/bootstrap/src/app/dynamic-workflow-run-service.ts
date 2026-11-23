@@ -74,6 +74,7 @@ import type {
   ModelSelection,
   ToolArtifactStorePort,
   WorkflowEscalatePort,
+  WorkflowWebSearchBudgetPort,
   WorkflowSubmitPort,
 } from "@zcode/contracts";
 import type { AgentRuntime } from "@zcode/core";
@@ -162,6 +163,11 @@ export interface DynamicWorkflowActorRuntimeInput {
    */
   escalatePort: WorkflowEscalatePort;
   /**
+   * 每个 ask 的 WebSearch 预算端口：计数在 driver 的会话状态里（startAsk 归零），上限取
+   * persona 的 `budget.webSearch`，缺席用默认值。恒注入，与升级端口同路下传到 runtime deps。
+   */
+  webSearchBudgetPort: WorkflowWebSearchBudgetPort;
+  /**
    * 这个 actor 上一次解析出的模型（journal 里的 `resolvedModel`，`providerId/modelId`），
    * 只有 resume 会带上它。没有 {@link DynamicWorkflowActorRuntimeInput.runSubagentModel} 时工厂
    * 必须优先于父会话模型采用它：见 `workflow-actor-model.ts` 里 pin 的理由（persona 冻结不变式
@@ -235,7 +241,9 @@ export interface DynamicWorkflowRunServiceDeps {
    */
   artifactStore?: ToolArtifactStorePort;
   /** 造一个 actor 的 child AgentRuntime（生产包装 createScriptWorkflowAgentRuntime）。 */
-  createActorRuntime: (input: DynamicWorkflowActorRuntimeInput) => AgentRuntime;
+  createActorRuntime: (
+    input: DynamicWorkflowActorRuntimeInput,
+  ) => AgentRuntime | Promise<AgentRuntime>;
   /** actor 会话的 task link 落库面；缺席则跳过建 link（会话本身仍落库）。 */
   taskLinkStore?: DynamicWorkflowTaskLinkStore;
   /**
@@ -449,6 +457,17 @@ export function createDynamicWorkflowRunService(
     async resume(runId: string): Promise<DynamicWorkflowRunResumeResult> {
       assertOpen();
       return trackOperation(() => resumeDynamicWorkflowRun(entryContext, runId));
+    },
+
+    async getActivityHistory() {
+      const journal = deps.journal as typeof deps.journal & {
+        getActivityHistory?: (
+          sessionId: string,
+        ) => import("@zcode/contracts").DynamicWorkflowActivityHistory;
+      };
+      return (
+        journal.getActivityHistory?.(deps.parentSessionId) ?? { runs: [], childSessionIds: [] }
+      );
     },
 
     async listRunsForSession(limit?: number): Promise<DynamicWorkflowRunSessionSummary[]> {

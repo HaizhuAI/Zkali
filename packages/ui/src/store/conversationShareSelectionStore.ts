@@ -24,6 +24,8 @@ export interface ConversationShareDisplayError {
   rejection?: ConversationShareRejection;
   /** 没有服务端 issues 时展示的、按错误类型解析出的可行动文案。 */
   messageId?: string;
+  /** 限流时服务端建议的等待秒数，用于“请 N 秒后重试”。 */
+  retryAfterSeconds?: number;
 }
 
 /** 发布成功但有结果物被跳过时的非阻断提示。 */
@@ -42,6 +44,8 @@ export interface ConversationShareSelectionDraft {
   excludedRowIds: readonly number[];
   productTurnIdByRowId: Readonly<Record<number, string>>;
   accessMode: ConversationShareAccessMode;
+  /** 用户选择的分享有效时长；null 表示使用服务端默认值。与权限一样跨轮保留。 */
+  ttlMs: number | null;
 }
 
 export interface ConversationShareDockState {
@@ -68,6 +72,7 @@ export interface ConversationShareSelectionState {
   drafts: Record<string, ConversationShareSelectionDraft>;
   dockStates: Record<string, ConversationShareDockState>;
   setAccessMode: (taskId: string, accessMode: ConversationShareAccessMode) => void;
+  setTtlMs: (taskId: string, ttlMs: number | null) => void;
   syncAvailableTurns: (
     taskId: string,
     turns: readonly { rowId: number; productTurnId: string }[],
@@ -83,6 +88,7 @@ const EMPTY_DRAFT: ConversationShareSelectionDraft = Object.freeze({
   excludedRowIds: Object.freeze([]),
   productTurnIdByRowId: Object.freeze({}),
   accessMode: DEFAULT_CONVERSATION_SHARE_ACCESS_MODE,
+  ttlMs: null,
 });
 
 export const DEFAULT_CONVERSATION_SHARE_DOCK_STATE: ConversationShareDockState = Object.freeze({
@@ -163,6 +169,16 @@ export const useConversationShareSelectionStore = create<ConversationShareSelect
           [taskId]: {
             ...(state.drafts[taskId] ?? EMPTY_DRAFT),
             accessMode,
+          },
+        },
+      })),
+    setTtlMs: (taskId, ttlMs) =>
+      set((state) => ({
+        drafts: {
+          ...state.drafts,
+          [taskId]: {
+            ...(state.drafts[taskId] ?? EMPTY_DRAFT),
+            ttlMs,
           },
         },
       })),

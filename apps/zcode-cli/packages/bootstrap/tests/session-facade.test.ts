@@ -1,3 +1,4 @@
+import { deferred } from "./session-facade-fixture.js";
 import { describe, expect, it, vi } from "vitest";
 import {
   DefaultRuntimeConfig,
@@ -6,7 +7,6 @@ import {
   type ModelSelection,
 } from "@zcode/contracts";
 import type { AgentRuntime } from "@zcode/core";
-
 import { createSessionFacade } from "../src/app/session-facade.js";
 
 describe("session facade shutdown", () => {
@@ -58,7 +58,7 @@ describe("session facade shutdown", () => {
         configPort: {} as never,
         sources: {} as never,
       },
-      configuredMcpServers: {},
+      getConfiguredMcpServers: () => ({}),
       executionPort: {
         async close() {
           calls.push("execution");
@@ -138,7 +138,7 @@ describe("session facade shutdown", () => {
         configPort: {} as never,
         sources: {} as never,
       },
-      configuredMcpServers: {},
+      getConfiguredMcpServers: () => ({}),
       executionPort: {
         async close() {
           calls.push("execution");
@@ -221,6 +221,7 @@ describe("session facade model selection", () => {
       ],
     };
     const saveSessionEntry = vi.fn(async () => {});
+    const markContextCompositionChanged = vi.fn();
     const validateSelection = vi.fn((selection: ModelSelection) =>
       selection.options?.reasoningLevel === "invalid"
         ? {
@@ -237,7 +238,7 @@ describe("session facade model selection", () => {
         configPort: {} as never,
         sources: {} as never,
       },
-      configuredMcpServers: {},
+      getConfiguredMcpServers: () => ({}),
       executionPort: {} as never,
       logger: { info: vi.fn(), warn: vi.fn() } as never,
       loggerFactory: {} as never,
@@ -263,6 +264,7 @@ describe("session facade model selection", () => {
         setSessionModelSelection: (selection: typeof modelSelection) => {
           modelSelection = selection;
         },
+        markContextCompositionChanged,
         updateConfig: vi.fn(),
         recordPendingModelChange: vi.fn(),
       } as unknown as AgentRuntime,
@@ -312,6 +314,8 @@ describe("session facade model selection", () => {
     ).rejects.toThrow("not supported");
     expect(modelSelection.options?.reasoningLevel).toBe("high");
     expect(saveSessionEntry).not.toHaveBeenCalled();
+    // 每次成功换模型都让 context 组成作废并通知；校验失败的那次不算（context-composition.md §3.4）。
+    expect(markContextCompositionChanged).toHaveBeenCalledTimes(2);
   });
 
   // ZCT-2109847556412547072：App 在 deferred 会话首条消息前设置档位，entry 写入因 session 行未创建
@@ -368,6 +372,7 @@ describe("session facade model selection", () => {
           modelSelection = selection;
         },
         isSessionPersisted: () => persisted,
+        markContextCompositionChanged: vi.fn(),
         updateConfig: vi.fn(),
         recordPendingModelChange: vi.fn(),
       } as unknown as AgentRuntime,
@@ -394,14 +399,27 @@ describe("session facade model selection", () => {
   });
 });
 
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  const promise = new Promise<T>((settle) => {
-    resolve = settle;
-  });
-  return { promise, resolve };
-}
-
 async function nextTask(): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
+
+it("lists and connects the current MCP configuration instead of the initial map", async () => {
+  let configured: Record<string, { type: string; command: string }> = {
+    old: { type: "stdio", command: "old" },
+  };
+  const connectServer = vi.fn(async () => ({ status: "connected" }));
+  const facade = createSessionFacade({
+    configResult: { config: DefaultRuntimeConfig },
+    runtime: {},
+    getConfiguredMcpServers: () => configured,
+    mcpPort: { status: async () => ({}), connectServer },
+    traceContext: { traceId: "mcp-config" },
+    workingDirectory: "/workspace",
+  } as never);
+  expect(Object.keys(await facade.listMcpServers())).toEqual(["old"]);
+  configured = { next: { type: "stdio", command: "next" } };
+  expect(Object.keys(await facade.listMcpServers())).toEqual(["next"]);
+  await expect(facade.connectMcpServer("old")).rejects.toThrow("not configured");
+  await facade.connectMcpServer("next");
+  expect(connectServer).toHaveBeenCalledWith("next", configured.next, expect.anything());
+});

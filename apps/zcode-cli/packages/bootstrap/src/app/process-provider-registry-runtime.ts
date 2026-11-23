@@ -71,13 +71,15 @@ export async function startProcessProviderRegistryRuntime(
               "zcode-builtin-refresh.json",
             ),
             resolveEndpointKey: () => resolveRuntimeZCodeEndpointOrigin(env),
-            fetchRelease: (endpointOrigin, signal) =>
+            fetchRelease: (endpointOrigin, signal, { reuseUrl }) =>
               downloadZCodeBuiltinRelease({
                 endpointOrigin,
                 signal,
                 appVersion: ZCODE_VERSION,
                 platform: resolveZCodeBuiltinClientPlatform(),
                 request: options.standalone?.request ?? globalThis.fetch,
+                resolveZcodeJwtToken: () => credentialStore?.load("zcodejwttoken"),
+                ...(reuseUrl ? { reuseUrl } : {}),
               }),
             onRefreshResult: options.standalone?.onBuiltinRefreshResult,
           },

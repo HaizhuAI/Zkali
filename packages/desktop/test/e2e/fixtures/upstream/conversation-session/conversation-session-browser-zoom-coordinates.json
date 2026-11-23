@@ -1,7 +1,7 @@
 {
   "version": 1,
   "caseName": "conversation-session-browser-zoom-coordinates",
-  "spec": "./test/e2e/conversation-session/conversation-session-browser-zoom-coordinates.test.ts",
+  "spec": "./test/e2e/conversation-session/browser-use/conversation-session-browser-zoom-coordinates.test.ts",
   "fixtures": [
     {
       "id": "zoom-title",
@@ -15,10 +15,7 @@
       "match": {
         "method": "POST",
         "pathIncludes": "/messages",
-        "bodyIncludes": [
-          "Generate a concise title",
-          "E2E_BROWSER_ZOOM_COORDINATES"
-        ]
+        "bodyIncludes": ["Generate a concise title", "E2E_BROWSER_ZOOM_COORDINATES"]
       },
       "response": {
         "statusCode": 200,
@@ -42,16 +39,11 @@
       "match": {
         "method": "POST",
         "pathIncludes": "/messages",
-        "lastUserMessageIncludes": [
-          "E2E_BROWSER_ZOOM_COORDINATES",
-          "E2E_ZOOM_ROUND_0"
-        ],
-        "bodyIncludes": [
-          "mcp__node_repl__js"
-        ],
+        "bodyIncludes": ["E2E_BROWSER_ZOOM_COORDINATES", "E2E_ZOOM_ROUND_0", "mcp__node_repl__js"],
         "bodyExcludes": [
           "Generate a concise title",
-          "CRITICAL: Respond with TEXT ONLY"
+          "CRITICAL: Respond with TEXT ONLY",
+          "toolu_zoom_0"
         ]
       },
       "response": {
@@ -62,6 +54,114 @@
           "input": {
             "code": "const { Buffer } = await import('node:buffer');\nconst { join } = await import('node:path');\nconst { pathToFileURL } = await import('node:url');\nconst root = process.env.ZCODE_PLUGIN_ROOT ?? process.env.CLAUDE_PLUGIN_ROOT;\nconst { setupBrowserRuntime } = await import(pathToFileURL(join(root, 'scripts', 'browser-client.mjs')).href);\nawait setupBrowserRuntime({ globals: globalThis });\nconst browser = await agent.browsers.get('iab');\nconst tab = await browser.tabs.new();\nawait tab.goto('{{browserFixtureUrl}}');\nawait tab.setViewportSize({ width: 1280, height: 720 });\nawait new Promise(resolve => setTimeout(resolve, 1200));\nconst png = await tab.screenshot();\nawait nodeRepl.emitImage(png);\nfor (const point of [{x:300,y:200},{x:600,y:400},{x:1000,y:600}]) await tab.cua.click(point);\nconst page = await tab.playwright.evaluate(() => ({ events: window.zoomEvents, width: innerWidth, height: innerHeight, dpr: devicePixelRatio }));\nconst { request } = await import('node:http');\nawait new Promise((resolve, reject) => { const req = request('{{browserFixtureUrl}}result/0', { method: 'POST' }, res => { res.resume(); res.on('end', resolve); }); req.on('error', reject); req.end(JSON.stringify({ png: Buffer.from(png).toString('base64'), page, tabId: tab.id })); });\n({ marker: 'E2E_ZOOM_RESULT_0', e2eBrowserTabId: tab.id });",
             "title": "缩放坐标回归 0"
+          }
+        }
+      }
+    },
+    {
+      "id": "zoom-action-0-mcp-wait-1",
+      "description": "Browser MCP 尚未就绪时执行第 1 次有界等待，工具出现后直接进入原业务动作。",
+      "metadata": {
+        "kind": "main",
+        "source": "synthetic",
+        "timingPolicy": "fast-text",
+        "syntheticReason": "首请求不等 MCP；用真实等待工具推进普通 step，保留尚未就绪、就绪后调用两条回放路径。"
+      },
+      "maxMatches": 1,
+      "match": {
+        "method": "POST",
+        "pathIncludes": "/messages",
+        "bodyIncludes": ["E2E_BROWSER_ZOOM_COORDINATES", "E2E_ZOOM_ROUND_0", "WaitForMcpServers"],
+        "bodyExcludes": [
+          "mcp__node_repl__js",
+          "Generate a concise title",
+          "CRITICAL: Respond with TEXT ONLY",
+          "toolu_zoom_0"
+        ]
+      },
+      "response": {
+        "statusCode": 200,
+        "toolUse": {
+          "id": "toolu_zoom_action_0_mcp_wait_1",
+          "name": "WaitForMcpServers",
+          "input": {
+            "servers": ["node_repl"]
+          }
+        }
+      }
+    },
+    {
+      "id": "zoom-action-0-mcp-wait-2",
+      "description": "Browser MCP 尚未就绪时执行第 2 次有界等待，工具出现后直接进入原业务动作。",
+      "metadata": {
+        "kind": "main",
+        "source": "synthetic",
+        "timingPolicy": "fast-text",
+        "syntheticReason": "首请求不等 MCP；用真实等待工具推进普通 step，保留尚未就绪、就绪后调用两条回放路径。"
+      },
+      "maxMatches": 1,
+      "match": {
+        "method": "POST",
+        "pathIncludes": "/messages",
+        "bodyIncludes": [
+          "E2E_BROWSER_ZOOM_COORDINATES",
+          "E2E_ZOOM_ROUND_0",
+          "WaitForMcpServers",
+          "toolu_zoom_action_0_mcp_wait_1"
+        ],
+        "bodyExcludes": [
+          "mcp__node_repl__js",
+          "Generate a concise title",
+          "CRITICAL: Respond with TEXT ONLY",
+          "toolu_zoom_0"
+        ],
+        "lastUserMessageIncludes": ["Still connecting"]
+      },
+      "response": {
+        "statusCode": 200,
+        "toolUse": {
+          "id": "toolu_zoom_action_0_mcp_wait_2",
+          "name": "WaitForMcpServers",
+          "input": {
+            "servers": ["node_repl"]
+          }
+        }
+      }
+    },
+    {
+      "id": "zoom-action-0-mcp-wait-3",
+      "description": "Browser MCP 尚未就绪时执行第 3 次有界等待，工具出现后直接进入原业务动作。",
+      "metadata": {
+        "kind": "main",
+        "source": "synthetic",
+        "timingPolicy": "fast-text",
+        "syntheticReason": "首请求不等 MCP；用真实等待工具推进普通 step，保留尚未就绪、就绪后调用两条回放路径。"
+      },
+      "maxMatches": 1,
+      "match": {
+        "method": "POST",
+        "pathIncludes": "/messages",
+        "bodyIncludes": [
+          "E2E_BROWSER_ZOOM_COORDINATES",
+          "E2E_ZOOM_ROUND_0",
+          "WaitForMcpServers",
+          "toolu_zoom_action_0_mcp_wait_2"
+        ],
+        "bodyExcludes": [
+          "mcp__node_repl__js",
+          "Generate a concise title",
+          "CRITICAL: Respond with TEXT ONLY",
+          "toolu_zoom_0"
+        ],
+        "lastUserMessageIncludes": ["Still connecting"]
+      },
+      "response": {
+        "statusCode": 200,
+        "toolUse": {
+          "id": "toolu_zoom_action_0_mcp_wait_3",
+          "name": "WaitForMcpServers",
+          "input": {
+            "servers": ["node_repl"]
           }
         }
       }
@@ -79,15 +179,8 @@
       "match": {
         "method": "POST",
         "pathIncludes": "/messages",
-        "bodyIncludes": [
-          "E2E_BROWSER_ZOOM_COORDINATES",
-          "toolu_zoom_0",
-          "E2E_ZOOM_RESULT_0"
-        ],
-        "bodyExcludes": [
-          "Generate a concise title",
-          "CRITICAL: Respond with TEXT ONLY"
-        ]
+        "bodyIncludes": ["E2E_BROWSER_ZOOM_COORDINATES", "toolu_zoom_0", "E2E_ZOOM_RESULT_0"],
+        "bodyExcludes": ["Generate a concise title", "CRITICAL: Respond with TEXT ONLY"]
       },
       "response": {
         "statusCode": 200,
@@ -107,17 +200,9 @@
       "match": {
         "method": "POST",
         "pathIncludes": "/messages",
-        "lastUserMessageIncludes": [
-          "E2E_BROWSER_ZOOM_COORDINATES",
-          "E2E_ZOOM_ROUND_1"
-        ],
-        "bodyIncludes": [
-          "mcp__node_repl__js"
-        ],
-        "bodyExcludes": [
-          "Generate a concise title",
-          "CRITICAL: Respond with TEXT ONLY"
-        ]
+        "lastUserMessageIncludes": ["E2E_BROWSER_ZOOM_COORDINATES", "E2E_ZOOM_ROUND_1"],
+        "bodyIncludes": ["mcp__node_repl__js"],
+        "bodyExcludes": ["Generate a concise title", "CRITICAL: Respond with TEXT ONLY"]
       },
       "response": {
         "statusCode": 200,
@@ -144,15 +229,8 @@
       "match": {
         "method": "POST",
         "pathIncludes": "/messages",
-        "bodyIncludes": [
-          "E2E_BROWSER_ZOOM_COORDINATES",
-          "toolu_zoom_1",
-          "E2E_ZOOM_RESULT_1"
-        ],
-        "bodyExcludes": [
-          "Generate a concise title",
-          "CRITICAL: Respond with TEXT ONLY"
-        ]
+        "bodyIncludes": ["E2E_BROWSER_ZOOM_COORDINATES", "toolu_zoom_1", "E2E_ZOOM_RESULT_1"],
+        "bodyExcludes": ["Generate a concise title", "CRITICAL: Respond with TEXT ONLY"]
       },
       "response": {
         "statusCode": 200,
@@ -172,17 +250,9 @@
       "match": {
         "method": "POST",
         "pathIncludes": "/messages",
-        "lastUserMessageIncludes": [
-          "E2E_BROWSER_ZOOM_COORDINATES",
-          "E2E_ZOOM_ROUND_2"
-        ],
-        "bodyIncludes": [
-          "mcp__node_repl__js"
-        ],
-        "bodyExcludes": [
-          "Generate a concise title",
-          "CRITICAL: Respond with TEXT ONLY"
-        ]
+        "lastUserMessageIncludes": ["E2E_BROWSER_ZOOM_COORDINATES", "E2E_ZOOM_ROUND_2"],
+        "bodyIncludes": ["mcp__node_repl__js"],
+        "bodyExcludes": ["Generate a concise title", "CRITICAL: Respond with TEXT ONLY"]
       },
       "response": {
         "statusCode": 200,
@@ -209,15 +279,8 @@
       "match": {
         "method": "POST",
         "pathIncludes": "/messages",
-        "bodyIncludes": [
-          "E2E_BROWSER_ZOOM_COORDINATES",
-          "toolu_zoom_2",
-          "E2E_ZOOM_RESULT_2"
-        ],
-        "bodyExcludes": [
-          "Generate a concise title",
-          "CRITICAL: Respond with TEXT ONLY"
-        ]
+        "bodyIncludes": ["E2E_BROWSER_ZOOM_COORDINATES", "toolu_zoom_2", "E2E_ZOOM_RESULT_2"],
+        "bodyExcludes": ["Generate a concise title", "CRITICAL: Respond with TEXT ONLY"]
       },
       "response": {
         "statusCode": 200,
@@ -237,17 +300,9 @@
       "match": {
         "method": "POST",
         "pathIncludes": "/messages",
-        "lastUserMessageIncludes": [
-          "E2E_BROWSER_ZOOM_COORDINATES",
-          "E2E_ZOOM_ROUND_3"
-        ],
-        "bodyIncludes": [
-          "mcp__node_repl__js"
-        ],
-        "bodyExcludes": [
-          "Generate a concise title",
-          "CRITICAL: Respond with TEXT ONLY"
-        ]
+        "lastUserMessageIncludes": ["E2E_BROWSER_ZOOM_COORDINATES", "E2E_ZOOM_ROUND_3"],
+        "bodyIncludes": ["mcp__node_repl__js"],
+        "bodyExcludes": ["Generate a concise title", "CRITICAL: Respond with TEXT ONLY"]
       },
       "response": {
         "statusCode": 200,
@@ -274,15 +329,8 @@
       "match": {
         "method": "POST",
         "pathIncludes": "/messages",
-        "bodyIncludes": [
-          "E2E_BROWSER_ZOOM_COORDINATES",
-          "toolu_zoom_3",
-          "E2E_ZOOM_RESULT_3"
-        ],
-        "bodyExcludes": [
-          "Generate a concise title",
-          "CRITICAL: Respond with TEXT ONLY"
-        ]
+        "bodyIncludes": ["E2E_BROWSER_ZOOM_COORDINATES", "toolu_zoom_3", "E2E_ZOOM_RESULT_3"],
+        "bodyExcludes": ["Generate a concise title", "CRITICAL: Respond with TEXT ONLY"]
       },
       "response": {
         "statusCode": 200,
@@ -302,17 +350,9 @@
       "match": {
         "method": "POST",
         "pathIncludes": "/messages",
-        "lastUserMessageIncludes": [
-          "E2E_BROWSER_ZOOM_COORDINATES",
-          "E2E_ZOOM_ROUND_4"
-        ],
-        "bodyIncludes": [
-          "mcp__node_repl__js"
-        ],
-        "bodyExcludes": [
-          "Generate a concise title",
-          "CRITICAL: Respond with TEXT ONLY"
-        ]
+        "lastUserMessageIncludes": ["E2E_BROWSER_ZOOM_COORDINATES", "E2E_ZOOM_ROUND_4"],
+        "bodyIncludes": ["mcp__node_repl__js"],
+        "bodyExcludes": ["Generate a concise title", "CRITICAL: Respond with TEXT ONLY"]
       },
       "response": {
         "statusCode": 200,
@@ -339,15 +379,8 @@
       "match": {
         "method": "POST",
         "pathIncludes": "/messages",
-        "bodyIncludes": [
-          "E2E_BROWSER_ZOOM_COORDINATES",
-          "toolu_zoom_4",
-          "E2E_ZOOM_RESULT_4"
-        ],
-        "bodyExcludes": [
-          "Generate a concise title",
-          "CRITICAL: Respond with TEXT ONLY"
-        ]
+        "bodyIncludes": ["E2E_BROWSER_ZOOM_COORDINATES", "toolu_zoom_4", "E2E_ZOOM_RESULT_4"],
+        "bodyExcludes": ["Generate a concise title", "CRITICAL: Respond with TEXT ONLY"]
       },
       "response": {
         "statusCode": 200,
@@ -367,17 +400,9 @@
       "match": {
         "method": "POST",
         "pathIncludes": "/messages",
-        "lastUserMessageIncludes": [
-          "E2E_BROWSER_ZOOM_COORDINATES",
-          "E2E_ZOOM_NATURAL"
-        ],
-        "bodyIncludes": [
-          "mcp__node_repl__js"
-        ],
-        "bodyExcludes": [
-          "Generate a concise title",
-          "CRITICAL: Respond with TEXT ONLY"
-        ]
+        "lastUserMessageIncludes": ["E2E_BROWSER_ZOOM_COORDINATES", "E2E_ZOOM_NATURAL"],
+        "bodyIncludes": ["mcp__node_repl__js"],
+        "bodyExcludes": ["Generate a concise title", "CRITICAL: Respond with TEXT ONLY"]
       },
       "response": {
         "statusCode": 200,
@@ -409,10 +434,7 @@
           "toolu_zoom_natural",
           "E2E_ZOOM_NATURAL_RESULT"
         ],
-        "bodyExcludes": [
-          "Generate a concise title",
-          "CRITICAL: Respond with TEXT ONLY"
-        ]
+        "bodyExcludes": ["Generate a concise title", "CRITICAL: Respond with TEXT ONLY"]
       },
       "response": {
         "statusCode": 200,
@@ -432,17 +454,9 @@
       "match": {
         "method": "POST",
         "pathIncludes": "/messages",
-        "lastUserMessageIncludes": [
-          "E2E_BROWSER_ZOOM_COORDINATES",
-          "E2E_ZOOM_RECOVERY"
-        ],
-        "bodyIncludes": [
-          "mcp__node_repl__js"
-        ],
-        "bodyExcludes": [
-          "Generate a concise title",
-          "CRITICAL: Respond with TEXT ONLY"
-        ]
+        "lastUserMessageIncludes": ["E2E_BROWSER_ZOOM_COORDINATES", "E2E_ZOOM_RECOVERY"],
+        "bodyIncludes": ["mcp__node_repl__js"],
+        "bodyExcludes": ["Generate a concise title", "CRITICAL: Respond with TEXT ONLY"]
       },
       "response": {
         "statusCode": 200,
@@ -474,10 +488,7 @@
           "toolu_zoom_recovery",
           "E2E_ZOOM_RECOVERY_RESULT"
         ],
-        "bodyExcludes": [
-          "Generate a concise title",
-          "CRITICAL: Respond with TEXT ONLY"
-        ]
+        "bodyExcludes": ["Generate a concise title", "CRITICAL: Respond with TEXT ONLY"]
       },
       "response": {
         "statusCode": 200,

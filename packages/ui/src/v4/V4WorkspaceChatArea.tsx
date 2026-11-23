@@ -41,10 +41,9 @@ import {
 import { useConversationPanePresentation } from "@/side-pane-full-view/index.js";
 import { WorkbenchLeafPane, type WorkbenchShellBinding } from "@/v4/WorkbenchPane.js";
 import { WorkbenchSplitDivider } from "@/v4/WorkbenchSplitDivider.js";
-import type { ConversationDropTargetController } from "@/v4/composer/conversationDropTarget.js";
+import { type RegisterConversationDropTarget } from "@/v4/composer/conversationDropTarget.js";
 import type {
   ChatSearchResultHighlightRequest,
-  ChatViewSummaryPanelVariant,
   ConversationFindMatchState,
 } from "@/v4/legacyChatViewTypes.js";
 import {
@@ -72,7 +71,7 @@ export interface V4WorkspaceChatAreaProps {
   activeSelectionSideChatSessionId?: string | null;
   provider?: ZCodeProvider;
   /** primary pane createSession/fork 后接入既有选择路径（handleSelectTask）。 */
-  onSessionCreated?: (sessionId: string) => void;
+  onSessionCreated?: (sessionId: string, origin?: "draft-promotion") => void;
   /** primary pane 会话删除后回 draft（shell 起新草稿）。 */
   onSessionDeleted?: () => void;
   /**
@@ -81,19 +80,19 @@ export interface V4WorkspaceChatAreaProps {
    */
   draftComposerHeader?: ReactNode;
   /** 桌面轻量草稿标题栏复用主草稿 composer 的 drop controller。 */
-  onPrimaryDraftDropTargetControllerChange?: (
-    controller: ConversationDropTargetController | null,
-  ) => void;
+  onPrimaryDraftDropTargetControllerChange?: RegisterConversationDropTarget;
   gitSummary?: GitRepositorySummary | null;
   gitDirtyFileCount?: number;
   gitWorktreeReviewSourceId?: GitChangeSourceId | null;
   gitWorktreeChangeSummary?: { added: number; removed: number } | null;
   activeTaskChangeSummary?: ZCodeTaskChangeSummary | null;
-  summaryPanelVariantOverride?: ChatViewSummaryPanelVariant | null;
-  onSummaryPanelVariantOverrideChange?: (variant: ChatViewSummaryPanelVariant | null) => void;
   onRefreshGit?: () => void;
   onOpenGitReview?: (sourceId?: GitChangeSourceId) => void;
-  onPaneActiveSessionChange?: (scope: PaneWorkspaceScope, sessionId: string) => void;
+  onPaneActiveSessionChange?: (
+    scope: PaneWorkspaceScope,
+    sessionId: string,
+    origin?: "draft-promotion",
+  ) => void;
   onOpenBrowserUrl?: (url: string) => void;
   onOpenAutomationsMain?: OpenAutomationsMain;
   onOpenCodeViewer?: (source: CodeViewerSource) => void;
@@ -153,8 +152,6 @@ export function V4WorkspaceChatArea({
   gitWorktreeReviewSourceId,
   gitWorktreeChangeSummary,
   activeTaskChangeSummary,
-  summaryPanelVariantOverride,
-  onSummaryPanelVariantOverrideChange,
   onRefreshGit,
   onOpenGitReview,
   onPaneActiveSessionChange,
@@ -282,8 +279,6 @@ export function V4WorkspaceChatArea({
       gitWorktreeReviewSourceId,
       gitWorktreeChangeSummary,
       activeTaskChangeSummary: primaryPaneSessionId ? activeTaskChangeSummary : null,
-      summaryPanelVariantOverride,
-      onSummaryPanelVariantOverrideChange,
       onRefreshGit,
       onOpenGitReview,
       onOpenBrowserUrl,
@@ -330,8 +325,6 @@ export function V4WorkspaceChatArea({
       gitWorktreeReviewSourceId,
       gitWorktreeChangeSummary,
       activeTaskChangeSummary,
-      summaryPanelVariantOverride,
-      onSummaryPanelVariantOverrideChange,
       onRefreshGit,
       onOpenGitReview,
       onOpenBrowserUrl,

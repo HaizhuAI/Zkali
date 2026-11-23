@@ -1,6 +1,7 @@
 import {
   SessionEventType,
   traceContextToLogContext,
+  type BackgroundExecutionSnapshot,
   type ExecutionPort,
   type SessionEvent,
   type TraceContext,
@@ -11,6 +12,7 @@ import type { ExecutableToolCall } from "../types.js";
 import type { ToolExecutorDeps } from "./types.js";
 import { isRecord } from "./utils.js";
 import { formatTaskNotification } from "../../runtime-task/notification.js";
+import { isTerminalRuntimeTask } from "../../runtime-task/registry.js";
 import { describeWorkflowScriptPath } from "../handlers/workflow-script-path.js";
 import {
   claimRuntimeBackgroundTaskNotification,
@@ -98,13 +100,21 @@ export class BackgroundTaskTracker {
 
     this.backgroundPollers.add(taskId);
     registerRuntimeBackgroundTask(this.deps, toolCall, taskId, output, turnId);
+    // 修复原因：Agent 进入后台（run_in_background 启动、autoBackgroundMs 或立即发送转后台）后 child 很快结束时，
+    // runner 已把任务改成终态并写了 BackgroundTaskCompleted，这里才写 BackgroundTaskStarted(running)，
+    // 投影按后到的事件把它一直显示成运行中。终态只由 runner 的收尾或停止入口（stopTask）提交，Completed 由
+    // 提交方写（收尾在提交的同一段同步代码里发起写入，stopTask 写完产物后再写）。这里的检查和发起 Started
+    // 写入在同一段同步代码里，读到终态就不再写 Started；之后的追踪与收尾照旧。
+    const settledLocalAgent = this.isSettledLocalAgentTask(toolCall, taskId);
     try {
-      await this.emitBackgroundTaskEvent(
-        SessionEventType.BackgroundTaskStarted,
-        this.backgroundTaskPayload(toolCall, taskId, "running", undefined, output),
-        traceContext,
-        turnId,
-      );
+      if (!settledLocalAgent) {
+        await this.emitBackgroundTaskEvent(
+          SessionEventType.BackgroundTaskStarted,
+          this.backgroundTaskPayload(toolCall, taskId, "running", undefined, output),
+          traceContext,
+          turnId,
+        );
+      }
     } catch (error) {
       this.backgroundPollers.delete(taskId);
       removeRuntimeBackgroundTask(this.deps, toolCall, taskId);
@@ -119,6 +129,7 @@ export class BackgroundTaskTracker {
       hasDirectWaiter,
       hasSnapshotProvider,
       module: "core.tool.executor",
+      startedEventSkipped: settledLocalAgent,
       taskId,
       toolName: toolCall.name,
     });
@@ -285,6 +296,11 @@ export class BackgroundTaskTracker {
           taskId,
           taskStatus: snapshot.status,
           toolName: toolCall.name,
+          // 与 Bash 前台 `tool.bash.process.*` 日志同一组字段，便于用 pid 对回系统侧记录。
+          toolCallId: toolCall.id,
+          ...(toolCall.name === "Bash"
+            ? backgroundExecutionLogFields(snapshot as BackgroundExecutionSnapshot)
+            : {}),
         });
         updateRuntimeBackgroundTask(this.deps, toolCall, taskId, snapshot.status, snapshot);
         this.maybeEnqueueBackgroundTaskNotification(
@@ -463,6 +479,13 @@ export class BackgroundTaskTracker {
       record.type === "local_agent" &&
       record.notified === true
     );
+  }
+
+  /** 本地 Agent 任务已由 subagent runner 收口为终态（BackgroundTaskCompleted 由提交终态的一方写）。 */
+  private isSettledLocalAgentTask(toolCall: ExecutableToolCall, taskId: string): boolean {
+    if (!isSubagentDispatchToolName(toolCall.name)) return false;
+    const task = this.deps.runtimeTaskRegistry?.get(taskId);
+    return task?.type === "local_agent" && isTerminalRuntimeTask(task);
   }
 
   private maybeEnqueueBackgroundTaskNotification(
@@ -909,4 +932,15 @@ function backgroundTaskKind(toolName: string): "bash" | "subagent" | "workflow" 
   // dwf 的两个入口（CreateWorkflow / ResumeWorkflowRun）同归 "workflow"：同一个 run 的
   // 生命周期延续，面板分组与图标不该因入口不同而换类。
   return isDynamicWorkflowRunDispatchToolName(toolName) ? "workflow" : "bash";
+}
+
+function backgroundExecutionLogFields(
+  execution: BackgroundExecutionSnapshot,
+): Record<string, unknown> {
+  return {
+    pid: execution.pid ?? execution.result?.pid,
+    exitCode: execution.result?.exitCode,
+    signal: execution.result?.signal,
+    durationMs: execution.result?.durationMs,
+  };
 }

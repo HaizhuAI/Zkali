@@ -34,7 +34,6 @@ export type ContextSource =
   | "env_info" // 环境信息 (cwd, platform, git repo boolean)
   | "session_context" // git snapshot context
   | "model" // 当前执行模型身份
-  | "skills" // 可用 skills
   | "tools" // 工具定义
   | "request_user_context" // request-level user context provider-visible 组合块
   | "memory" // 长期 memory read path
@@ -46,6 +45,9 @@ export type ContextSource =
   | "dynamic_behavior" // 动态行为边界
   | "session_guidance" // 当前可用内置能力指导
   | "context_management" // 长上下文管理提示
+  | "finishing_work" // 收尾：不在欠着工作时停下
+  | "memory_notes" // 记忆保存与笔记的取舍规则
+  | "total_tokens" // 固定的 token 预算行
   | "desktop_context" // zkali Desktop 渲染与交互协议
   | "zkali_universal_kernel"; // zkali 定制发行预置的 universal-kernel 作业内核
 
@@ -68,16 +70,38 @@ export interface ContextSection {
   tokens: number; // 估算 token 数
   content: string; // 完整内容
   preview: string; // 前 100 字符预览
+  /** request_user_context 的逐文件块；指令变化公告按它比较。 */
+  instructionFiles?: InstructionFile[];
 }
 
-export type ContextMetaUserAttachmentSource =
-  | "skills_listing"
-  | "context_prefix"
-  | "session_context";
+/** 指令公告里的一个文件块：`Contents of <path> (<type>):`、空行、正文（已 trim）。 */
+export interface InstructionFile {
+  path: string;
+  type: string;
+  body: string;
+  /** body 的 sha256；构建文件时算一次（createInstructionFile），请求前的比较直接用它。 */
+  hash: string;
+}
+
+export type InstructionRefreshReason = "session_start" | "compaction";
+
+/**
+ * context_prefix 记录在 runtime metadata 里保存的已公告文件（不发给 provider）。
+ * 没有 reason 的是完整公告；有 reason 的是增量，files 只含变化或新增的文件。
+ */
+export interface InstructionAnnouncement {
+  files: { path: string; type: string; hash: string }[];
+  removed?: string[];
+  reason?: InstructionRefreshReason;
+}
+
+export type ContextMetaUserAttachmentSource = "context_prefix" | "session_context";
 
 export interface ContextMetaUserAttachment {
   source: ContextMetaUserAttachmentSource;
   content: string;
+  /** 只有 context_prefix 有：组成 content 的指令文件。 */
+  files?: InstructionFile[];
 }
 
 // -----------------------------------------------
@@ -117,10 +141,10 @@ export interface ContextBuilderConfig {
   projectContext?: ProjectContext;
   memoryRoot?: string;
   memoryIndexContent?: string;
+  /** 会话开始时的 skill 目录：只决定 system prompt 里的 skill 引导语；列表由 skills_listing 收集器渲染。 */
   skills?: SkillLoadOutcome;
   agentProfiles?: readonly AgentProfile[];
   embeddedSearchEnabled?: boolean;
-  skillMetadataBudget?: number;
   customSystemPrompt?: string;
   /**
    * 动态工作流子代理（workflow child）的身份输入。在场即走 builder 的第三条路径：
@@ -128,10 +152,11 @@ export interface ContextBuilderConfig {
    * 而不是像 `customSystemPrompt` 那样整段替换。与 `customSystemPrompt` 互斥。
    */
   workflowActor?: WorkflowActorContext;
-  language?: string;
   outputStyle?: OutputStylePromptConfig;
   compact?: AutoCompactPolicyConfig;
   guidanceToolNames?: readonly string[];
+  /** runtime 的 token 预算提醒开关；打开时 system 末尾带固定预算行。缺省关闭。 */
+  totalTokensReminder?: boolean;
 }
 
 /**

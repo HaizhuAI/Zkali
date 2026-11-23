@@ -14,6 +14,7 @@ import {
   createTurnId,
   GOAL_COMPLETION_VERIFICATION_QUERY_SOURCE,
   HookEventName,
+  markUnparsedToolInput,
   ModelTransportKind,
   SESSION_ENTRY_TARGET_COMPLETION_VERIFICATION,
   SessionEventType,
@@ -51,9 +52,10 @@ import type {
   UpdateSessionInput,
 } from "@zcode/contracts";
 import { createTestAgentRuntime } from "./test-agent-runtime.js";
-import { MessageHistoryImpl } from "../src/agent/message-history.js";
+import { MessageHistoryImpl, type RuntimeMessageEntry } from "../src/agent/message-history.js";
 import { hydrateMessageHistoryFromSession } from "../src/agent/session-history-hydrator.js";
 import { buildProviderRequestMessages } from "../src/runtime/helpers/provider-request-messages.js";
+import { buildSilentTurnReminderBody } from "../src/runtime/helpers/runtime-reminders.js";
 import { DEFAULT_MODEL_REQUEST_MEDIA_BUDGET_BYTES } from "../src/runtime/helpers/media-budget.js";
 import { MAX_TURN_STEER_INPUT_BYTES } from "../src/runtime/helpers/steering.js";
 import { projectIdFromDirectory } from "../src/runtime/helpers/project.js";
@@ -5697,14 +5699,159 @@ describe("AgentRuntime tool loop", () => {
     expect(requestText).not.toContain(objective);
   });
 
+  // 静默提醒按时间判定：每次模型响应耗时 stepMs，每次工具执行耗时 1 秒（只伪造 Date，持久化与 runtime
+  // 读同一个时钟）。21 秒一步时，每 3 步满 60 秒发一次，不设上限；响应很快时不发。
   it.each([
-    { mcs: false, taskType: undefined },
-    { mcs: true, taskType: undefined },
-    { mcs: true, taskType: "subagent_child" as const },
+    { mcs: false, taskType: undefined, stepMs: 20_000 },
+    { mcs: true, taskType: undefined, stepMs: 20_000 },
+    { mcs: true, taskType: "subagent_child" as const, stepMs: 20_000 },
+    { mcs: true, taskType: undefined, stepMs: 50 },
   ])(
-    "collects and restores silent reminders only for main continuations %j",
-    async ({ mcs, taskType }) => {
-      const sessionId = createSessionId("runtime-silent-reminder");
+    "collects and restores timed silent reminders only for main continuations %j",
+    async ({ mcs, taskType, stepMs }) => {
+      vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-15T00:00:00.000Z") });
+      try {
+        const toolMs = stepMs < 20_000 ? 0 : 1_000;
+        const sessionId = createSessionId("runtime-silent-reminder");
+        const sessionStore = new RecordingSessionStore();
+        const registry = createToolRegistry();
+        registry.register({
+          inputSchema: {},
+          metadata: {
+            name: "Inspect",
+            concurrentSafe: true,
+            destructive: false,
+            needsApproval: false,
+            readOnly: true,
+            riskLevel: "low",
+            sideEffectScope: "none",
+          },
+          handler: async () => {
+            vi.setSystemTime(Date.now() + toolMs);
+            return "inspection result";
+          },
+        });
+        const requests: any[][] = [];
+        const runtime = createTestAgentRuntime(
+          sessionId,
+          {
+            mode: "yolo",
+            taskType,
+            maxTurns: 30,
+            workingDirectory: "/tmp/silent-reminder-test",
+          },
+          {
+            eventStore: createTestSessionEventStore(),
+            sessionStore,
+            toolRegistry: registry,
+            modelFactory: createTestModelFactory({
+              properties: { supportsMidConversationSystem: mcs },
+              async generateText(request) {
+                requests.push(request.messages);
+                vi.setSystemTime(Date.now() + stepMs);
+                const step = requests.length;
+                return {
+                  finishReason: step <= 20 ? "tool-calls" : "stop",
+                  text: step <= 20 ? "" : "Finished inspection.",
+                  toolCalls:
+                    step <= 20 ? [{ id: `inspect-${step}`, name: "Inspect", input: { step } }] : [],
+                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                };
+              },
+            }),
+          },
+        );
+        await runtime.executeTurn("Inspect the code");
+        expect(requests).toHaveLength(21);
+        const marker = "The user hasn't heard from you in a while.";
+        const expected = taskType || stepMs < 20_000 ? 0 : 6;
+        const reminderCounts = requests.map(
+          (messages) => providerMessagesToText(messages).split(marker).length - 1,
+        );
+        expect(reminderCounts).toEqual(
+          Array.from({ length: 21 }, (_, index) => (expected ? Math.floor(index / 3) : 0)),
+        );
+        // 静默提醒在 MCS 开启时投影为 system 消息。
+        expect(
+          requests
+            .flat()
+            .filter((message) => message.role === "system")
+            .some((message) => providerContentToText(message.content).includes(marker)),
+        ).toBe(mcs && expected > 0);
+        const persisted = await sessionStore.messages({ sessionID: sessionId });
+        const notices = persisted.filter((message) =>
+          message.parts.some(
+            (part) =>
+              part.type === "text" &&
+              part.metadata?.runtimeMessage?.source === "silent_turn_reminder",
+          ),
+        );
+        expect(notices).toHaveLength(expected);
+        expect(
+          notices.every((message) =>
+            message.parts.every(
+              (part) =>
+                part.type === "text" && part.synthetic && !part.text.includes("<system-reminder>"),
+            ),
+          ),
+        ).toBe(true);
+
+        // 冷恢复：条目时间从持久化行带回。提醒与用户输入与 live 相同；带工具调用的响应 live 在工具执行前
+        // 记时间，行的 time.completed 在工具结算后写，恢复后晚一个工具批次（meta-user-context.md「Entry time」）。
+        // 这是已知差异，见 docs/issues/silent-reminder-entry-time/01-tool-call-response-time-after-cold-resume.md；
+        // 修复后改成冷恢复等于 live。
+        const live: RuntimeMessageEntry[] = (runtime as any).messageHistory.toRuntimeEntries();
+        const restored = new MessageHistoryImpl();
+        await hydrateMessageHistoryFromSession({ history: restored, messages: persisted });
+        const restoredEntries = restored.toRuntimeEntries();
+        const reminderTimes = (entries: readonly RuntimeMessageEntry[]) =>
+          entries
+            .filter((entry) => entry.metadata?.source === "silent_turn_reminder")
+            .map((entry) => entry.time);
+        expect(reminderTimes(restoredEntries)).toEqual(reminderTimes(live));
+        expect(reminderTimes(live)).toEqual(notices.map((message) => message.info.time.created));
+        const conversation = (entries: readonly RuntimeMessageEntry[]) =>
+          entries.filter(
+            (entry) =>
+              entry.kind !== "attachment" &&
+              (entry.message.role === "assistant" || entry.metadata?.source === "real_user"),
+          );
+        expect(conversation(restoredEntries).map((entry) => entry.time)).toEqual(
+          conversation(live).map((entry) =>
+            entry.kind !== "attachment" && entry.message.toolCalls?.length
+              ? entry.time! + toolMs
+              : entry.time,
+          ),
+        );
+        expect(conversation(live).every((entry) => typeof entry.time === "number")).toBe(true);
+        // 去掉最后一条可见回复，模拟停在静默段中途时冷恢复。
+        const stretch = (entries: RuntimeMessageEntry[]) =>
+          entries.slice(
+            0,
+            entries.findLastIndex(
+              (entry) => entry.kind !== "attachment" && entry.message.role === "assistant",
+            ),
+          );
+        for (const later of [0, 30_000, 60_000, 120_000]) {
+          const now = Date.now() + later;
+          expect(buildSilentTurnReminderBody(stretch(restoredEntries), now)).toBe(
+            buildSilentTurnReminderBody(stretch(live), now),
+          );
+        }
+
+        await runtime.executeTurn("New user request");
+        expect(providerMessagesToText(requests.at(-1)!).split(marker).length - 1).toBe(expected);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  // 不带展示标记的 Guide 按用户输入入史，是静默段的锚点；请求条目里的这一份也要带时间。
+  it("times the silent reminder from a guide drained mid-turn", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-15T00:00:00.000Z") });
+    try {
+      const sessionId = createSessionId("runtime-silent-reminder-guide");
       const sessionStore = new RecordingSessionStore();
       const registry = createToolRegistry();
       registry.register({
@@ -5723,26 +5870,27 @@ describe("AgentRuntime tool loop", () => {
       const requests: any[][] = [];
       const runtime = createTestAgentRuntime(
         sessionId,
-        {
-          mode: "yolo",
-          taskType,
-          maxTurns: 30,
-          workingDirectory: "/tmp/silent-reminder-test",
-        },
+        { mode: "yolo", maxTurns: 30, workingDirectory: "/tmp/silent-reminder-guide-test" },
         {
           eventStore: createTestSessionEventStore(),
           sessionStore,
           toolRegistry: registry,
           modelFactory: createTestModelFactory({
-            properties: { supportsMidConversationSystem: mcs },
             async generateText(request) {
               requests.push(request.messages);
               const step = requests.length;
+              if (step === 1)
+                await runtime.steerTurn({
+                  expectedTurnId: runtime.getActiveTurnInfo()?.turnId,
+                  input: "GUIDE_SILENT_ANCHOR",
+                  delivery: "guide",
+                });
+              vi.setSystemTime(Date.now() + 25_000);
               return {
-                finishReason: step <= 20 ? "tool-calls" : "stop",
-                text: step <= 20 ? "" : "Finished inspection.",
+                finishReason: step <= 6 ? "tool-calls" : "stop",
+                text: step <= 6 ? "" : "Finished inspection.",
                 toolCalls:
-                  step <= 20 ? [{ id: `inspect-${step}`, name: "Inspect", input: { step } }] : [],
+                  step <= 6 ? [{ id: `inspect-${step}`, name: "Inspect", input: { step } }] : [],
                 usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
               };
             },
@@ -5750,51 +5898,15 @@ describe("AgentRuntime tool loop", () => {
         },
       );
       await runtime.executeTurn("Inspect the code");
-      expect(requests).toHaveLength(21);
+      // Guide 在第 2 个请求前取出（25 秒）；第 5 个请求距它 75 秒，前面有 3 次静默响应。
       const marker = "The user hasn't heard from you in a while.";
-      const reminderCounts = requests.map(
-        (messages) => providerMessagesToText(messages).split(marker).length - 1,
-      );
-      expect(reminderCounts).toEqual(
-        Array.from({ length: 21 }, (_, index) =>
-          taskType ? 0 : Math.min(3, Math.floor(index / 5)),
-        ),
-      );
-      // 静默提醒在 MCS 开启时投影为 system 消息。
       expect(
-        requests
-          .flat()
-          .filter((message) => message.role === "system")
-          .some((message) => providerContentToText(message.content).includes(marker)),
-      ).toBe(mcs && !taskType);
-      const persisted = await sessionStore.messages({ sessionID: sessionId });
-      const notices = persisted
-        .flatMap((message) => message.parts)
-        .filter(
-          (part) =>
-            part.type === "text" &&
-            part.metadata?.runtimeMessage?.source === "silent_turn_reminder",
-        );
-      expect(notices).toHaveLength(taskType ? 0 : 3);
-      expect(
-        notices.every(
-          (part) =>
-            part.type === "text" && part.synthetic && !part.text.includes("<system-reminder>"),
-        ),
-      ).toBe(true);
-      const restored = new MessageHistoryImpl();
-      await hydrateMessageHistoryFromSession({ history: restored, messages: persisted });
-      expect(
-        restored
-          .borrowReadOnlyRuntimeEntries()
-          .filter((entry) => entry.metadata?.source === "silent_turn_reminder"),
-      ).toHaveLength(taskType ? 0 : 3);
-      await runtime.executeTurn("New user request");
-      expect(providerMessagesToText(requests.at(-1)!).split(marker).length - 1).toBe(
-        taskType ? 0 : 3,
-      );
-    },
-  );
+        requests.map((messages) => providerMessagesToText(messages).split(marker).length - 1),
+      ).toEqual([0, 0, 0, 0, 1, 1, 1]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it("does not inject todo reminders before the cadence threshold", async () => {
     const sessionId = createSessionId("runtime-todo-current-turn-context");
@@ -6302,8 +6414,8 @@ describe("AgentRuntime tool loop", () => {
     await runtime.ensureSessionPersistedForExternalActivity("/goal Verify harness");
     await sessionStore.setTarget({ objective: "Ship target", sessionID: sessionId });
     await runtime.executeTurn("finish target");
-    // 轮次结束后不带模型的重建（这里是改语言）不能决定 verifier 请求的 Harness 文案。
-    runtime.updateConfig({ language: "Chinese" });
+    // 轮次结束后不带模型的重建（这里是改 output style）不能决定 verifier 请求的 Harness 文案。
+    runtime.updateConfig({ outputStyle: undefined });
     await runtime.continueActiveTargetIfIdle({ verifyBeforeContinue: true });
 
     const verifierSystem = JSON.stringify(requests[1]?.messages[1]);
@@ -9847,7 +9959,7 @@ describe("AgentRuntime tool loop", () => {
         newText: "first edited",
         traceContext,
       }),
-    ).resolves.toBe(true);
+    ).resolves.toBe("edited");
     await expect(
       runtime.reorderPendingInput({
         pendingInputId: second.pendingInputId,
@@ -10007,6 +10119,468 @@ describe("AgentRuntime tool loop", () => {
     // send-now 从 queue 摘除后仍保持 admitted；真正的 user message 会在另一条
     // startPromptTurn 写路径中原子 promotion，崩溃则由恢复清扫置 discarded。
     expect(sessionStore.settledSessionInputIds).not.toContain(queued.pendingInputId);
+  });
+
+  it("freezes a queued input for composer edit until the owning editor submits or releases it", async () => {
+    // docs/ui/composer-edit-mode.md：编辑锁与 reservation 互斥；冻结期间不能被删除、重排、
+    // 提升，只有持锁编辑器的 editPendingInputById 能写回并同时释放锁。
+    const sessionId = createSessionId("runtime-turn-steer-edit-lock");
+    const eventStore = createTestSessionEventStore();
+    const sessionStore = new RecordingSessionStore();
+    const modelStarted = deferred();
+    const finishModel = deferred();
+    const runtime = createTestAgentRuntime(
+      sessionId,
+      { mode: "build" },
+      {
+        eventStore,
+        sessionStore,
+        modelFactory: createTestModelFactory({
+          async generateText() {
+            modelStarted.resolve();
+            await finishModel.promise;
+            return {
+              finishReason: "stop",
+              providerMetadata: undefined,
+              text: "first answer",
+              usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            };
+          },
+        } as never),
+      },
+    );
+    const traceContext = { sessionId, traceId: createTraceId("trace-edit-lock") };
+    const pendingTurn = runtime.executeTurn("run while editing");
+    await modelStarted.promise;
+    const queued = await runtime.steerTurn({
+      input: "edit me",
+      delivery: "queue",
+      intent: {
+        sourceCommandId: "command-edit",
+        queueItemId: "queue-edit",
+        clientId: "desktop",
+        kind: "sendText",
+        admissionSeq: 1,
+        admittedAt: 1,
+        requestedDelivery: "queue",
+        admittedDelivery: "queue",
+        mode: "build",
+      },
+    });
+    const other = await runtime.steerTurn({ input: "other", delivery: "queue" });
+    if (queued.kind !== "queued" || other.kind !== "queued") {
+      throw new Error("expected queued inputs");
+    }
+    const lock = { editorId: "editor-a", clientId: "desktop", inputOrigin: "desktop" as const };
+
+    await expect(
+      runtime.lockPendingInputEdit({
+        pendingInputId: queued.pendingInputId,
+        editLock: lock,
+        traceContext,
+      }),
+    ).resolves.toBe("locked");
+    await expect(
+      runtime.lockPendingInputEdit({
+        pendingInputId: queued.pendingInputId,
+        editLock: { ...lock, editorId: "editor-b" },
+        traceContext,
+      }),
+    ).resolves.toBe("lockedByOther");
+    await expect(
+      runtime.lockPendingInputEdit({
+        pendingInputId: "missing-input",
+        editLock: lock,
+        traceContext,
+      }),
+    ).resolves.toBe("missing");
+    expect(runtime.getPendingInputEditLock(queued.pendingInputId)).toEqual(lock);
+
+    // 冻结项：reserve / 删除 / 重排都被拒绝；其他项不受影响。
+    await expect(
+      runtime.reservePendingInputById({
+        pendingInputId: queued.pendingInputId,
+        reservationId: "send-now",
+        traceContext,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      runtime.removePendingInputById({
+        pendingInputId: queued.pendingInputId,
+        reason: "user_removed",
+        traceContext,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      runtime.reorderPendingInput({
+        pendingInputId: queued.pendingInputId,
+        beforePendingInputId: null,
+        traceContext,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      runtime.reorderPendingInput({
+        pendingInputId: other.pendingInputId,
+        beforePendingInputId: queued.pendingInputId,
+        traceContext,
+      }),
+    ).resolves.toBe(true);
+
+    // 未持锁的写回不能覆盖冻结项；声明错误编辑器视为锁已丢失。
+    await expect(
+      runtime.editPendingInputById({
+        pendingInputId: queued.pendingInputId,
+        newText: "overwrite",
+        traceContext,
+      }),
+    ).resolves.toBe("editLocked");
+    await expect(
+      runtime.editPendingInputById({
+        pendingInputId: queued.pendingInputId,
+        newText: "overwrite",
+        editorId: "editor-b",
+        traceContext,
+      }),
+    ).resolves.toBe("lockLost");
+
+    const attachmentRefs = [
+      { ref: "artifact:new", fileName: "new.txt", mime: "text/plain", bytes: 3 },
+    ];
+    const modelSelection = { providerId: "provider-edit", modelId: "model-edit" };
+    await expect(
+      runtime.editPendingInputById({
+        pendingInputId: queued.pendingInputId,
+        newText: "edited text",
+        editorId: "editor-a",
+        attachmentRefs,
+        modelSelection,
+        mode: "yolo",
+        planEnabled: true,
+        traceContext,
+      }),
+    ).resolves.toBe("edited");
+    expect(runtime.getPendingInputEditLock(queued.pendingInputId)).toBeUndefined();
+
+    const events = await eventStore.getEvents(sessionId);
+    const lockEvents = events
+      .filter((event) => event.type === SessionEventType.TurnSteerEditLockChanged)
+      .map((event) => (event.payload as { editLock?: unknown }).editLock ?? null);
+    expect(lockEvents).toEqual([lock, null]);
+    const editedEvent = events
+      .filter((event) => event.type === SessionEventType.TurnSteerQueued)
+      .at(-1);
+    expect(editedEvent?.payload).toMatchObject({
+      pendingInputId: queued.pendingInputId,
+      input: "edited text",
+      intent: {
+        text: "edited text",
+        attachmentRefs,
+        modelSelection,
+        mode: "yolo",
+        planEnabled: true,
+      },
+    });
+
+    // 只改配置（applyQueueItemsConfig）：缺省 newText 保留原输入，不写正文更新。
+    const inputUpdatesBefore = sessionStore.sessionInputUpdates.length;
+    await expect(
+      runtime.editPendingInputById({
+        pendingInputId: queued.pendingInputId,
+        mode: "guarded",
+        traceContext,
+      }),
+    ).resolves.toBe("edited");
+    expect(sessionStore.sessionInputUpdates).toHaveLength(inputUpdatesBefore);
+    const configEdited = (await eventStore.getEvents(sessionId))
+      .filter((event) => event.type === SessionEventType.TurnSteerQueued)
+      .at(-1);
+    expect(configEdited?.payload).toMatchObject({
+      pendingInputId: queued.pendingInputId,
+      input: "edited text",
+      intent: { text: "edited text", attachmentRefs, modelSelection, mode: "guarded" },
+    });
+
+    // 解锁后恢复正常：可再次加锁并由任意端解除。
+    await expect(
+      runtime.lockPendingInputEdit({
+        pendingInputId: queued.pendingInputId,
+        editLock: lock,
+        traceContext,
+      }),
+    ).resolves.toBe("locked");
+    await expect(
+      runtime.releasePendingInputEdit({ pendingInputId: queued.pendingInputId, traceContext }),
+    ).resolves.toBe(true);
+    await expect(
+      runtime.releasePendingInputEdit({ pendingInputId: queued.pendingInputId, traceContext }),
+    ).resolves.toBe(false);
+    await expect(
+      runtime.reservePendingInputById({
+        pendingInputId: queued.pendingInputId,
+        reservationId: "send-now",
+        traceContext,
+      }),
+    ).resolves.toBe(true);
+    // reserve 后不能再被冻结，与 sendQueuedNow 互斥。
+    await expect(
+      runtime.lockPendingInputEdit({
+        pendingInputId: queued.pendingInputId,
+        editLock: lock,
+        traceContext,
+      }),
+    ).resolves.toBe("reserved");
+
+    finishModel.resolve();
+    await pendingTurn;
+  });
+
+  it("drops a queued input together with its composer edit lock when a rebuilt runtime resumes", async () => {
+    // 编辑锁只属于当前 runtime 实例（docs/ui/composer-edit-mode.md「锁的释放」）。新 runtime
+    // 必须经 resumeFromStore 丢弃残留队列项（session_resumed），投影与空锁表才保持一致；
+    // 否则会出现「投影显示已锁、runtime 查不到锁」而无法解除、阻塞续跑。
+    const sessionId = createSessionId("runtime-edit-lock-resume");
+    const eventStore = createTestSessionEventStore();
+    const sessionStore = new RecordingSessionStore();
+    const modelStarted = deferred();
+    const finishModel = deferred();
+    const createRuntime = () =>
+      createTestAgentRuntime(
+        sessionId,
+        { mode: "build", workingDirectory: "/tmp/zcode-edit-lock-resume" },
+        {
+          eventStore,
+          sessionStore,
+          modelFactory: createTestModelFactory({
+            async generateText() {
+              modelStarted.resolve();
+              await finishModel.promise;
+              return {
+                finishReason: "stop",
+                providerMetadata: undefined,
+                text: "answer",
+                usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+              };
+            },
+          } as never),
+        },
+      );
+    const traceContext = { sessionId, traceId: createTraceId("trace-edit-lock-resume") };
+    const firstRuntime = createRuntime();
+    const pendingTurn = firstRuntime.executeTurn("run while editing");
+    await modelStarted.promise;
+    const queued = await firstRuntime.steerTurn({ input: "edit me", delivery: "queue" });
+    if (queued.kind !== "queued") throw new Error("expected queued input");
+    await expect(
+      firstRuntime.lockPendingInputEdit({
+        pendingInputId: queued.pendingInputId,
+        editLock: { editorId: "editor-a", clientId: "desktop" },
+        traceContext,
+      }),
+    ).resolves.toBe("locked");
+
+    const resumedRuntime = createRuntime();
+    await resumedRuntime.resumeFromStore();
+
+    expect((await resumedRuntime.getProjection()).pendingSteerInputs).toHaveLength(0);
+    expect(resumedRuntime.getPendingInputEditLock(queued.pendingInputId)).toBeUndefined();
+    const discarded = (await eventStore.getEvents(sessionId)).find(
+      (event) => event.type === SessionEventType.TurnSteerDiscarded,
+    );
+    expect(discarded?.payload).toMatchObject({
+      pendingInputIds: [queued.pendingInputId],
+      reason: "session_resumed",
+    });
+
+    finishModel.resolve();
+    await pendingTurn;
+  });
+
+  it("keeps a frozen item's edit lock when clearing the queue fails to record the discard", async () => {
+    // docs/ui/composer-edit-mode.md：锁与队列项同生同灭。清空队列写丢弃事件失败时，
+    // 项仍在投影里，锁也必须仍在 runtime 里，才能被解除且继续拦住删除。
+    const sessionId = createSessionId("runtime-edit-lock-clear-failure");
+    const baseStore = createTestSessionEventStore();
+    let failNextDiscard = true;
+    const eventStore = new Proxy(baseStore, {
+      get(target, property, receiver) {
+        if (property === "append") {
+          return async (event: SessionEvent) => {
+            if (failNextDiscard && event.type === SessionEventType.TurnSteerDiscarded) {
+              failNextDiscard = false;
+              throw new Error("discard append failed");
+            }
+            return target.append(event);
+          };
+        }
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const sessionStore = new RecordingSessionStore();
+    const modelStarted = deferred();
+    const finishModel = deferred();
+    const runtime = createTestAgentRuntime(
+      sessionId,
+      { mode: "build" },
+      {
+        eventStore,
+        sessionStore,
+        modelFactory: createTestModelFactory({
+          async generateText() {
+            modelStarted.resolve();
+            await finishModel.promise;
+            return {
+              finishReason: "stop",
+              providerMetadata: undefined,
+              text: "answer",
+              usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            };
+          },
+        } as never),
+      },
+    );
+    const traceContext = { sessionId, traceId: createTraceId("trace-edit-lock-clear-failure") };
+    const pendingTurn = runtime.executeTurn("run while editing");
+    await modelStarted.promise;
+    const queued = await runtime.steerTurn({ input: "edit me", delivery: "queue" });
+    if (queued.kind !== "queued") throw new Error("expected queued input");
+    const lock = { editorId: "editor-a", clientId: "desktop" };
+    await runtime.lockPendingInputEdit({
+      pendingInputId: queued.pendingInputId,
+      editLock: lock,
+      traceContext,
+    });
+
+    await expect(runtime.clearAllPendingInputs(traceContext)).rejects.toThrow(
+      "discard append failed",
+    );
+    expect((await runtime.getProjection()).pendingSteerInputs).toMatchObject([
+      { pendingInputId: queued.pendingInputId },
+    ]);
+    expect(runtime.getPendingInputEditLock(queued.pendingInputId)).toEqual(lock);
+    await expect(
+      runtime.removePendingInputById({
+        pendingInputId: queued.pendingInputId,
+        reason: "user_removed",
+        traceContext,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      runtime.releasePendingInputEdit({ pendingInputId: queued.pendingInputId, traceContext }),
+    ).resolves.toBe(true);
+
+    // 重试清空成功后，项与锁一起消失。
+    await runtime.lockPendingInputEdit({
+      pendingInputId: queued.pendingInputId,
+      editLock: lock,
+      traceContext,
+    });
+    await expect(runtime.clearAllPendingInputs(traceContext)).resolves.toBe(1);
+    expect((await runtime.getProjection()).pendingSteerInputs).toHaveLength(0);
+    expect(runtime.getPendingInputEditLock(queued.pendingInputId)).toBeUndefined();
+
+    finishModel.resolve();
+    await pendingTurn;
+  });
+
+  it("keeps the edit lock when the unlock event after an edit or release fails to persist", async () => {
+    // docs/ui/composer-edit-mode.md：锁的内存状态与锁事件同生同灭。解锁事件写入失败时，
+    // 投影仍显示锁，runtime 也必须仍持锁：可重试解除，且删除继续被拒绝。
+    const sessionId = createSessionId("runtime-edit-lock-unlock-failure");
+    const baseStore = createTestSessionEventStore();
+    let failNextUnlock = false;
+    const eventStore = new Proxy(baseStore, {
+      get(target, property, receiver) {
+        if (property === "append") {
+          return async (event: SessionEvent) => {
+            const unlocking =
+              event.type === SessionEventType.TurnSteerEditLockChanged &&
+              !(event.payload as { editLock?: unknown }).editLock;
+            if (failNextUnlock && unlocking) {
+              failNextUnlock = false;
+              throw new Error("unlock append failed");
+            }
+            return target.append(event);
+          };
+        }
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const sessionStore = new RecordingSessionStore();
+    const modelStarted = deferred();
+    const finishModel = deferred();
+    const runtime = createTestAgentRuntime(
+      sessionId,
+      { mode: "build" },
+      {
+        eventStore,
+        sessionStore,
+        modelFactory: createTestModelFactory({
+          async generateText() {
+            modelStarted.resolve();
+            await finishModel.promise;
+            return {
+              finishReason: "stop",
+              providerMetadata: undefined,
+              text: "answer",
+              usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            };
+          },
+        } as never),
+      },
+    );
+    const traceContext = { sessionId, traceId: createTraceId("trace-edit-lock-unlock-failure") };
+    const pendingTurn = runtime.executeTurn("run while editing");
+    await modelStarted.promise;
+    const queued = await runtime.steerTurn({ input: "edit me", delivery: "queue" });
+    if (queued.kind !== "queued") throw new Error("expected queued input");
+    const lock = { editorId: "editor-a", clientId: "desktop" };
+    const expectStillLocked = async () => {
+      expect(runtime.getPendingInputEditLock(queued.pendingInputId)).toEqual(lock);
+      await expect(
+        runtime.removePendingInputById({
+          pendingInputId: queued.pendingInputId,
+          reason: "user_removed",
+          traceContext,
+        }),
+      ).resolves.toBe(false);
+    };
+    await runtime.lockPendingInputEdit({
+      pendingInputId: queued.pendingInputId,
+      editLock: lock,
+      traceContext,
+    });
+
+    // 编辑提交：内容已写入，解锁事件失败。
+    failNextUnlock = true;
+    await expect(
+      runtime.editPendingInputById({
+        pendingInputId: queued.pendingInputId,
+        newText: "edited",
+        editorId: "editor-a",
+        traceContext,
+      }),
+    ).rejects.toThrow("unlock append failed");
+    await expectStillLocked();
+
+    // 手动解除：解锁事件失败，锁保留；重试成功后才删除。
+    failNextUnlock = true;
+    await expect(
+      runtime.releasePendingInputEdit({ pendingInputId: queued.pendingInputId, traceContext }),
+    ).rejects.toThrow("unlock append failed");
+    await expectStillLocked();
+    await expect(
+      runtime.releasePendingInputEdit({ pendingInputId: queued.pendingInputId, traceContext }),
+    ).resolves.toBe(true);
+    expect(runtime.getPendingInputEditLock(queued.pendingInputId)).toBeUndefined();
+    const lockEvents = (await baseStore.getEvents(sessionId))
+      .filter((event) => event.type === SessionEventType.TurnSteerEditLockChanged)
+      .map((event) => Boolean((event.payload as { editLock?: unknown }).editLock));
+    expect(lockEvents).toEqual([true, false]);
+
+    finishModel.resolve();
+    await pendingTurn;
   });
 
   it("discards queued-but-not-drained steering input during resume", async () => {
@@ -10413,7 +10987,7 @@ describe("AgentRuntime tool loop", () => {
     await expect(pendingTurn).rejects.toMatchObject({ type: CoreErrorType.TurnCancelled });
   });
 
-  it("returns a failed tool result for sanitized malformed input and continues the run", async () => {
+  it("returns a failed tool result for schema-invalid empty input and continues the run", async () => {
     const sessionId = createSessionId("runtime-malformed-tool-input-recovery");
     const eventStore = createTestSessionEventStore();
     const sessionStore = new RecordingSessionStore();
@@ -10489,7 +11063,8 @@ describe("AgentRuntime tool loop", () => {
           async *streamText(request: any) {
             modelCallCount++;
             if (modelCallCount === 1) {
-              // adapter 已把 final tool-call 的 malformed JSON 严格降级为普通 {} input。
+              // 普通 {} input（不带解析失败标记）：覆盖 schema 拒绝后继续本轮。adapter 对 malformed JSON
+              // 返回的是带标记的 {}，那条路径见 tool-input-normalization.test.ts。
               yield {
                 type: "tool_call",
                 toolCall: {
@@ -10580,21 +11155,25 @@ describe("AgentRuntime tool loop", () => {
     expect(result.response).toBe("recovered after malformed tool input");
     expect(assistantToolUse?.toolCalls).toEqual([
       {
+        blockIndex: 0,
         id: "malformed-ask-call",
         input: {},
         name: "AskUserQuestionFixture",
       },
       {
+        blockIndex: 1,
         id: "empty-input-call",
         input: {},
         name: "EmptyInputFixture",
       },
       {
+        blockIndex: 2,
         id: "unknown-tool-call",
         input: {},
         name: "UnknownFixture",
       },
       {
+        blockIndex: 3,
         id: "empty-name-call",
         input: {},
         name: "",
@@ -10649,6 +11228,121 @@ describe("AgentRuntime tool loop", () => {
       },
       tool: "empty_tool_name",
     });
+  });
+
+  it("reports unparseable tool input JSON end to end without running the tool", async () => {
+    // adapter → runtime → executor → 下一次请求：标记按引用传到 executor；历史与持久化里 input 仍是 {}。
+    const sessionId = createSessionId("runtime-unparsed-tool-input");
+    const sessionStore = new RecordingSessionStore();
+    const registry = createToolRegistry();
+    const ranTools: string[] = [];
+    let modelCallCount = 0;
+    let recoveryRequest: any;
+    const raw = '{"questions": [unterminated';
+
+    for (const [name, required] of [
+      ["AskUserQuestionFixture", ["questions"]],
+      ["EmptyInputFixture", []],
+    ] as const) {
+      registry.register({
+        inputSchema: {
+          type: "object",
+          properties: name === "EmptyInputFixture" ? {} : { questions: { type: "array" } },
+          required: [...required],
+          additionalProperties: false,
+        },
+        metadata: {
+          concurrentSafe: true,
+          destructive: false,
+          name,
+          needsApproval: false,
+          readOnly: true,
+          riskLevel: "low",
+          sideEffectScope: "none",
+        },
+        handler: async () => {
+          ranTools.push(name);
+          return "should-not-run";
+        },
+      });
+    }
+
+    const runtime = createTestAgentRuntime(
+      sessionId,
+      { mode: "yolo", modelStreaming: "on" },
+      {
+        eventStore: createTestSessionEventStore(),
+        sessionStore,
+        toolRegistry: registry,
+        modelFactory: createTestModelFactory({
+          async generateText() {
+            throw new Error("generateText should not be used");
+          },
+          async *streamText(request: any) {
+            modelCallCount++;
+            if (modelCallCount === 1) {
+              for (const [id, name] of [
+                ["unparsed-ask-call", "AskUserQuestionFixture"],
+                ["unparsed-empty-call", "EmptyInputFixture"],
+              ]) {
+                yield {
+                  type: "tool_call",
+                  toolCall: { id, input: markUnparsedToolInput(raw), name },
+                };
+              }
+              yield {
+                type: "finish",
+                finishReason: "tool-calls",
+                usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+              };
+              return;
+            }
+            recoveryRequest = request;
+            yield { type: "text_delta", text: "recovered" };
+            yield {
+              type: "finish",
+              finishReason: "stop",
+              usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            };
+          },
+        } as never),
+      },
+    );
+
+    await runtime.executeTurn("ask a question");
+
+    // 没有必填参数的工具原来会用空输入直接执行；现在两个都不执行。
+    expect(ranTools).toEqual([]);
+    const assistantToolUse = recoveryRequest.messages.find(
+      (message: any) => message.role === "assistant" && message.toolCalls?.length > 0,
+    );
+    expect(JSON.stringify(assistantToolUse?.toolCalls.map((call: any) => call.input))).toBe(
+      "[{},{}]",
+    );
+    for (const [id, name] of [
+      ["unparsed-ask-call", "AskUserQuestionFixture"],
+      ["unparsed-empty-call", "EmptyInputFixture"],
+    ]) {
+      const toolResult = recoveryRequest.messages.find(
+        (message: any) => message.role === "tool" && message.toolCallId === id,
+      );
+      expect(toolResult).toMatchObject({ isError: true, toolName: name });
+      expect(providerContentToText(toolResult?.content)).toBe(
+        [
+          `<tool_use_error>InputValidationError: ${name} was called with input that could not be parsed as JSON.`,
+          `You sent (first ${raw.length} of ${raw.length} bytes): ${raw}`,
+          "Common causes: unescaped backslashes in file paths (use / or \\\\), unescaped control characters, or truncated output. Retry with valid JSON.</tool_use_error>",
+        ].join("\n"),
+      );
+    }
+    const persistedParts = (await sessionStore.messages({ sessionID: sessionId }))
+      .flatMap((message) => message.parts)
+      .filter((part) => part.type === "tool");
+    expect(persistedParts.map((part: any) => JSON.stringify(part.state.input))).toEqual([
+      "{}",
+      "{}",
+    ]);
+    expect(persistedParts.map((part: any) => part.state.status)).toEqual(["error", "error"]);
   });
 
   it("keeps side-effecting streamed tool calls behind the end-of-stream boundary", async () => {
@@ -11038,7 +11732,7 @@ describe("AgentRuntime tool loop", () => {
         expect.objectContaining({
           message: expect.objectContaining({
             role: "assistant",
-            toolCalls: [{ id: "fallback-read", name: "FallbackRead", input: {} }],
+            toolCalls: [{ id: "fallback-read", name: "FallbackRead", input: {}, blockIndex: 0 }],
           }),
         }),
       );
@@ -13822,6 +14516,11 @@ describe("AgentRuntime tool loop", () => {
       (message) => message.info.source === "rewind",
     );
 
+    expect(rewindEvent?.payload).toMatchObject({
+      removedMessageIds: messages
+        .slice(messages.findIndex((message) => message.info.id === target!.info.id))
+        .map((message) => message.info.id),
+    });
     expect(rewind.response).toContain(`Rewound conversation to before message ${target!.info.id}`);
     expect(allModelText).toContain("first prompt");
     expect(allModelText).toContain("after rewind");
@@ -15222,8 +15921,6 @@ class RecordingSessionStore implements SessionStorePort {
   async upsertTurnUsage(): Promise<void> {}
 
   async upsertToolUsage(): Promise<void> {}
-
-  async pruneUsage(): Promise<void> {}
 
   async getSession(sessionID: SessionId): Promise<SessionInfo | null> {
     return this.sessions.get(sessionID) ?? null;

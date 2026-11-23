@@ -1,5 +1,11 @@
-import type { HostRemoteConversationTelemetryResponse } from "@zcode/shared";
+import type { HostQuitBlocker, HostRemoteConversationTelemetryResponse } from "@zcode/shared";
+import {
+  createSystemCredentialCipher,
+  executeCredentialCipherRequest,
+} from "@zcode/shared/credential-security";
+import { getCredentialsFilePath } from "@zcode/services/node";
 import { ingestToolExecResource } from "./desktopResourceTelemetry.js";
+import { bindAppControlNavigationHost } from "#src/app-control-navigation/main.js";
 import { ingestMcpResourceSamples } from "./processResourceMcpTelemetrySource.js";
 /* eslint-disable max-lines -- host process 统一处理 main↔host 生命周期、日志、zkali Agent，拆分前先保持跨进程消息收口。 */
 import {
@@ -16,6 +22,7 @@ import {
   type RemoteTarget,
   type TaskRealtimeHostDeliveryKind,
   type WorkspacePurpose,
+  CREDENTIAL_KEY_SHARE_UNAVAILABLE_ERROR_CODE,
   formatZCodeHostProcessName,
   HostMessageTypes,
   hostResponseMessageSchema,
@@ -39,7 +46,7 @@ import {
   MessageChannelMain,
 } from "electron";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { BroadcastHub } from "./broadcastHub.js";
 import { bindDatabaseStartupRelay } from "./databaseStartupRelay.js";
 import { getMainLaunchPartialMarks } from "./desktopLaunchMarks.js";
@@ -91,8 +98,11 @@ export interface HostInitMessage {
   }>;
   agentSpawnFallbackCwd?: string;
   remoteAssets?: RemoteAssetDirs;
+  /** Main 持有的 Agent 回复语言（null 为未设置）；后续变化由 reply-language-changed 推送。 */
+  replyLanguage: string | null;
   /** Main 解析后的 zkali Built-in Provider Config 路径；Host/Services 不感知 Electron 安装布局。 */
   zcodeBuiltinProviderConfigFilePath: string;
+  /** 构建固定目标，不包含安装状态；本机 Host 用共享纯函数解析记录地址。 */
   /** Main 提前异步采集并过滤的本机 runtime 环境；只允许传给 InitLocal。 */
   runtimeProcessEnvPatch?: Record<string, string>;
 }
@@ -176,6 +186,8 @@ export function spawnHostProcess(
     taskRealtimeBus?: TaskRealtimeBus;
     windowHostProcessMap: Map<number, ElectronUtilityProcess>;
     hostRunningTaskCountMap: Map<ElectronUtilityProcess, number>;
+    /** 每个 Host 当前阻止退出的事项（docs/git/worktree.md §6.4）；空集合时删除条目。 */
+    hostQuitBlockersMap: Map<ElectronUtilityProcess, HostQuitBlocker[]>;
     onWorkspaceRunningTaskCountChanged?: (
       child: ElectronUtilityProcess,
       event: {
@@ -256,6 +268,9 @@ export function spawnHostProcess(
   options?: SpawnHostProcessOptions,
 ): ElectronUtilityProcess {
   const hostId = randomUUID();
+  // 系统库只由 Main 访问；路径在 fork 时绑定，Host 不能指定其他凭据目录。
+  // 与 Host 凭据服务共用同一路径解析入口，保证 Main 绑定的 cipher 与 Host 读写的文件一致。
+  const credentialCipher = createSystemCredentialCipher({ filePath: getCredentialsFilePath() });
   const glmBinaryPath = resolveBundledGlmBinaryPath();
   const execArgv = [
     ...(RUNTIME_ZCODE_DEBUG ? [`--inspect-brk=${RUNTIME_ZCODE_DEBUG}`] : []),
@@ -309,9 +324,58 @@ export function spawnHostProcess(
   });
 
   const databaseStartupRelay = bindDatabaseStartupRelay(win, child, hostId);
+  const unbindAppNavigation = bindAppControlNavigationHost(win, child, (id) =>
+    BrowserWindow.fromId(id),
+  );
+  child.once("exit", unbindAppNavigation);
   child.on("message", (message: unknown) => {
     const result = hostResponseMessageSchema.safeParse(message);
     if (!result.success) {
+      return;
+    }
+
+    if (result.data.type === HostResponseTypes.CredentialCipherRequest) {
+      const { type: _type, ...request } = result.data;
+      void executeCredentialCipherRequest(credentialCipher, request)
+        .then((reply) => {
+          if (!exitedHostProcesses.has(child)) {
+            child.postMessage({ type: HostMessageTypes.CredentialCipherResult, ...reply });
+          }
+        })
+        .catch(() => {
+          // Host 已退出时只能放弃回包；任何凭据输入/结果都不得进入日志。
+        });
+      return;
+    }
+
+    if (result.data.type === HostResponseTypes.CredentialKeyShareRequest) {
+      const { requestId, targetBaseDir } = result.data;
+      // 修复原因（ZCT-2120723935487688704）：切换数据存储路径只复制凭据文件，新根缺少系统条目，
+      // 重启后掉登录且无法重新登录。Host 只提供数据根；凭据路径由 Main 按 copyDataDirectory 的
+      // 目标布局推导，密钥不离开 Main，也不开放对目标目录的加解密。
+      const share = isAbsolute(targetBaseDir)
+        ? credentialCipher.shareKeyWithCopiedCredentials(
+            join(targetBaseDir, ".zcode", "v2", "credentials.json"),
+          )
+        : Promise.reject(new Error("Data root must be absolute"));
+      void share
+        .then(
+          () => ({ ok: true }),
+          () => ({ ok: false, errorCode: CREDENTIAL_KEY_SHARE_UNAVAILABLE_ERROR_CODE }),
+        )
+        .then((reply) => {
+          dependencies.logger.info(`[credential-key-share] ${reply.ok ? "completed" : "failed"}`);
+          if (!exitedHostProcesses.has(child)) {
+            child.postMessage({
+              type: HostMessageTypes.CredentialKeyShareResult,
+              requestId,
+              ...reply,
+            });
+          }
+        })
+        .catch(() => {
+          // Host 已退出时只能放弃回包；原生异常不进入日志，避免泄露系统细节。
+        });
       return;
     }
 
@@ -433,7 +497,9 @@ export function spawnHostProcess(
         return;
       }
       void Promise.resolve()
-        .then(() => register(request))
+        // schema 的 refine 已按 contentKind 校验归属（扩展视图无会话，其他类型必须有会话）；
+        // zod 的推导类型表达不出这层判别，这里收窄成契约的判别联合。
+        .then(() => register(request as PluginSandboxRegisterRequestPayload))
         .then((handle) => reply({ requestId: request.requestId, ok: true, ...handle }))
         .catch((error: unknown) =>
           reply({
@@ -621,6 +687,15 @@ export function spawnHostProcess(
       return;
     }
 
+    if (result.data.type === HostResponseTypes.QuitBlockersChanged) {
+      if (result.data.blockers.length > 0) {
+        dependencies.hostQuitBlockersMap.set(child, result.data.blockers);
+      } else {
+        dependencies.hostQuitBlockersMap.delete(child);
+      }
+      return;
+    }
+
     if (result.data.type === HostResponseTypes.AgentRunningTaskCountChanged) {
       if (result.data.runningTaskCount > 0) {
         dependencies.hostRunningTaskCountMap.set(child, result.data.runningTaskCount);
@@ -698,6 +773,7 @@ export function spawnHostProcess(
     hostLogRelay.flushRawLogs();
     dependencies.logger.info(`[spawnHostProcess] host process (${label}) exited with code ${code}`);
     dependencies.hostRunningTaskCountMap.delete(child);
+    dependencies.hostQuitBlockersMap.delete(child);
     if (shouldRegisterBroadcast) {
       dependencies.broadcastHub.unregister(windowId);
     }

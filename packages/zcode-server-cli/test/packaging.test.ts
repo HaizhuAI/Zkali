@@ -7,14 +7,19 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { gunzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
+import { list as listTar } from "tar";
 import {
   collectBareModuleSpecifiers,
   isNodePtyRuntimePath,
   resolveProductionPackageClosure,
   stageRelease,
 } from "../src/packaging/stage.js";
-import { assertNodePtyNativeMatchesJs } from "../src/packaging/stageDependencies.js";
+import {
+  assertNodePtyNativeMatchesJs,
+  isTargetSpecificPackage,
+} from "../src/packaging/stageDependencies.js";
 import { resolveHostTarCommand } from "../src/packaging/tarCommand.js";
+import { runPackagingCommand } from "../src/packaging/stageArchives.js";
 
 const execFileAsync = promisify(execFile);
 async function runTar(args: string[]): Promise<void> {
@@ -23,6 +28,42 @@ async function runTar(args: string[]): Promise<void> {
 
 const temporaryDirs: string[] = [];
 const macIt = process.platform === "darwin" ? it : it.skip;
+
+describe("POSIX archive executable modes", () => {
+  it.each([".", "zcode-server-linux-x64"])(
+    "writes executable metadata without relying on host file modes (%s)",
+    async (prefix) => {
+      const cwd = await makeTempDir();
+      const archivePath = join(await makeTempDir(), "release.tar.gz");
+      const executables = [
+        "bin/zcode",
+        "runtime/node",
+        "runtime/tools/bfs/bfs",
+        "runtime/tools/ripgrep/rg",
+        "runtime/tools/ugrep/ugrep",
+        "runtime/node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper",
+      ];
+      for (const path of [...executables, "runtime/server-cli.js", "runtime/tools/bfs/LICENSE"]) {
+        const file = join(cwd, prefix, path);
+        await mkdir(join(file, ".."), { recursive: true });
+        // 模拟 Windows staging：NTFS 无 POSIX 执行位，归档必须按目标布局写入它。
+        await writeFile(file, "fixture", { mode: 0o644 });
+      }
+      await runPackagingCommand("tar", ["-czf", archivePath, prefix], cwd);
+      const modes = new Map<string, number>();
+      await listTar({
+        file: archivePath,
+        onReadEntry: (entry) => {
+          modes.set(entry.path.replace(/^\.\//u, ""), entry.mode ?? 0);
+        },
+      });
+      const archiveName = (path: string) => (prefix === "." ? path : `${prefix}/${path}`);
+      for (const path of executables) expect(modes.get(archiveName(path))! & 0o777).toBe(0o755);
+      for (const path of ["runtime/server-cli.js", "runtime/tools/bfs/LICENSE"])
+        expect(modes.get(archiveName(path))! & 0o111).toBe(0);
+    },
+  );
+});
 
 async function makeTempDir(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "zcode-server-stage-test-"));
@@ -276,6 +317,11 @@ describe("stageRelease", () => {
 
     const releaseDir = staged.releaseDir;
     expect(releaseDir.endsWith("zcode-server-linux-x64")).toBe(true);
+    expect(
+      JSON.parse(await readFile(join(releaseDir, "runtime", "package.json"), "utf8")),
+    ).toMatchObject({
+      zcodeCredentialFormat: 2,
+    });
 
     const launcher = await readFile(join(releaseDir, "bin", "zcode"), "utf8");
     expect(launcher).toContain('"$DIR/runtime/node"');
@@ -426,12 +472,39 @@ describe("stageRelease", () => {
     const fixture = await makeStageFixture();
     const toolsDir = join(await makeTempDir(), "tools");
     await writeFakeNativeTools(toolsDir, { ripgrep: "rg.exe", ugrep: "ugrep.exe" });
+    // Job 宿主属于必需的 server-runtime；漏包时必须在发布前失败。
+    await expect(
+      stageRelease({
+        target: "win32-x64",
+        appVersion: "9.9.9-test",
+        nativeToolsDir: toolsDir,
+        ...fixture,
+      }),
+    ).rejects.toThrow(/runtime-host/);
+    await mkdir(join(toolsDir, "runtime-host"), { recursive: true });
+    await writeFile(join(toolsDir, "runtime-host/zcode-runtime-host.exe"), "fixture runtime host");
     const staged = await stageRelease({
       target: "win32-x64",
       appVersion: "9.9.9-test",
       nativeToolsDir: toolsDir,
       ...fixture,
     });
+    await expect(
+      readFile(
+        join(staged.releaseDir, "runtime/tools/runtime-host/zcode-runtime-host.exe"),
+        "utf8",
+      ),
+    ).resolves.toBe("fixture runtime host");
+    const manifest = JSON.parse(await readFile(join(staged.releaseDir, "manifest.json"), "utf8"));
+    expect(
+      manifest.components.find((component: { id: string }) => component.id === "server-runtime")
+        .paths,
+    ).toContain("runtime/tools/runtime-host");
+    expect(
+      manifest.components.find(
+        (component: { id: string }) => component.id === "native-search-tools",
+      ).paths,
+    ).not.toContain("runtime/tools");
     expect(staged.archivePath).toMatch(/\.zip$/u);
     expect(await readFile(join(staged.releaseDir, "bin", "zcode.cmd"), "utf8")).toContain(
       "node.exe",
@@ -937,4 +1010,10 @@ describe("stageRelease", () => {
       );
     },
   );
+});
+
+it("stages only the target OS keyring binary", () => {
+  expect(isTargetSpecificPackage("@napi-rs/keyring-linux-x64-gnu", "linux-x64")).toBe(true);
+  expect(isTargetSpecificPackage("@napi-rs/keyring-win32-x64-msvc", "linux-x64")).toBe(false);
+  expect(isTargetSpecificPackage("@napi-rs/keyring-linux-arm64-gnu", "linux-x64")).toBe(false);
 });

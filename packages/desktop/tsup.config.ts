@@ -189,8 +189,15 @@ export function applyDesktopTsupEsbuildSecurityOptions(options: DesktopTsupEsbui
 
 const desktopTsupBundleSecurityOptions = resolveDesktopTsupBundleSecurityOptions();
 
+export function resolvePreinstalledToolsTestBuild(
+  env: Record<string, string | undefined>,
+): boolean {
+  return env.VITE_ZCODE_E2E_STORE_BRIDGE === "1";
+}
+
 function createSharedDefines() {
   return {
+    __ZCODE_PREINSTALL_TEST_BUILD__: JSON.stringify(resolvePreinstalledToolsTestBuild(process.env)),
     __ZCODE_VERSION__: JSON.stringify(buildMetadata.appVersion),
     __ZCODE_MIN_COMPATIBLE_VERSION__: JSON.stringify(buildMetadata.minCompatibleVersion),
     __ZCODE_COMMIT__: JSON.stringify(buildMetadata.buildCommitId),
@@ -224,6 +231,7 @@ function createMainDefines() {
 const desktopNodeRuntimeExternals = [
   "electron",
   "node-pty",
+  "@napi-rs/keyring",
   "ssh2",
   "undici",
   "@larksuiteoapi/node-sdk",
@@ -235,7 +243,9 @@ const desktopNodeRuntimeExternals = [
   "yauzl",
 ];
 
-function createDevReadyMarkerHook(target: "main" | "host" | "preload"): string {
+function createDevReadyMarkerHook(
+  target: "main" | "host" | "preload" | "scheduler" | "extension-host",
+): string {
   // CLI 级 --onSuccess 在多 config watch 模式下会被每个子构建分别触发。
   // 之前 preload 先成功时就提前写入 ready 标记，Electron 仍会在 main/host 未完成时启动。
   // 这里改成每个 config 自己在成功后写独立 marker，让 dev 启动脚本能精确等待全部构建完成。
@@ -247,6 +257,7 @@ export default defineConfig([
     name: "main",
     entry: {
       "main/index": "src/main/index.ts",
+      "preinstalled-tools/process": "src/preinstalled-tools/process.ts",
       "main/browserWebmRecorder": "src/main/browserView/electronBrowserWebmRecorder.ts",
       "main/zcodeDataSizeWorker": "src/main/zcodeDataSizeWorker.ts",
       // 资源管理器「存储」tab 的扫描 Worker：main 持有 StorageService，遍历放独立线程，供 new Worker(new URL()) 解析。
@@ -402,6 +413,27 @@ export default defineConfig([
       options.chunkNames = "scheduler/chunk-[hash]";
     },
     onSuccess: createDevReadyMarkerHook("scheduler"),
+    ...desktopTsupBundleSecurityOptions,
+  },
+  {
+    // 全 App 唯一的扩展进程（docs/plugins/extension-host.md §12.1）。扩展代码在运行时按插件路径
+    // 动态 import，不进入本 bundle；这里只打包宿主本身（rpc、shared）与扩展视图用的 MCP SDK
+    // （§8：进程内 MCP Client 与写法一的低层 Server）。SDK 内联进产物，安装包不依赖 node_modules 布局。
+    name: "extension-host",
+    entry: { "extension-host/index": "src/extension-host/index.ts" },
+    outDir: "out",
+    format: "esm",
+    platform: "node",
+    removeNodeProtocol: false,
+    target: "node22",
+    external: desktopNodeRuntimeExternals,
+    noExternal: ["@zcode/shared", "@zcode/rpc", /^@modelcontextprotocol\//],
+    define: createSharedDefines(),
+    esbuildOptions(options) {
+      applyDesktopTsupEsbuildSecurityOptions(options);
+      options.chunkNames = "extension-host/chunk-[hash]";
+    },
+    onSuccess: createDevReadyMarkerHook("extension-host"),
     ...desktopTsupBundleSecurityOptions,
   },
 ]);

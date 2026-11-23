@@ -59,6 +59,8 @@ export function createWindow(options: {
   initialDesktopZoomLevel?: number;
   initialWindowSize?: DesktopWindowSize;
   currentApplicationLocale?: () => Locale;
+  /** Main 持有的 Agent 回复语言（null 为未设置）；spawn 时随 InitLocal 下发。必填：漏接会让冷恢复误发清除公告。 */
+  currentReplyLanguage: () => string | null;
   persistWindowSize?: (state: DesktopWindowSize) => Promise<void>;
   /** Main 模块初始化期已开始的异步环境采集；通常在 renderer dom-ready 前完成。 */
   runtimeProcessEnvPatchPromise?: Promise<Record<string, string>>;
@@ -214,6 +216,8 @@ export function createWindow(options: {
         remoteAssets: options.remoteAssets,
         // Host 的 X-Client-Language 以 Main 的实时界面语言为准；与后续变更消息同端口按序到达。
         ...(options.currentApplicationLocale ? { locale: options.currentApplicationLocale() } : {}),
+        // 回复语言同理：InitLocal 先于 Host 创建服务与 spawn CLI，CLI 不会读到"尚未加载"。
+        replyLanguage: options.currentReplyLanguage(),
       });
       options.windowHostProcessMap.set(wcId, child);
       options.onHostProcessReady?.(wcId);
@@ -427,6 +431,11 @@ export function handleDesktopWindowCloseRequest(options: {
   logger: { info: (...args: unknown[]) => void };
   shouldConfirmQuit?: boolean;
   confirmQuit: () => boolean;
+  /**
+   * 只关窗口（不退出应用）时的确认：该窗口的 Host 有关闭后无法恢复的事项时返回用户的选择，
+   * 没有这类事项时直接返回 true（docs/git/worktree.md §3.9）。缺省视为无需确认。
+   */
+  confirmWindowClose?: () => boolean;
   requestQuit: () => void;
   hideWindow?: () => void;
 }) {
@@ -447,7 +456,13 @@ export function handleDesktopWindowCloseRequest(options: {
     return true;
   }
 
-  if (options.platform === "darwin" || options.forceQuit || !options.isLastWindow) {
+  if (options.forceQuit) return false;
+  if (options.platform === "darwin" || !options.isLastWindow) {
+    // 关闭窗口会结束该窗口的 Host；Host 内正在进行、无法恢复的事项需要用户确认。
+    if (options.confirmWindowClose && !options.confirmWindowClose()) {
+      options.logger.info(`[createWindow] window close canceled by user (${options.label})`);
+      return true;
+    }
     return false;
   }
 

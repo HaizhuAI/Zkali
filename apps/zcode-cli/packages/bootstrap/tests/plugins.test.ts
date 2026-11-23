@@ -1,3 +1,6 @@
+import { execFile } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
+import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -8,10 +11,11 @@ import { fileURLToPath } from "node:url";
 import { createConfig } from "@zcode/adapters/config";
 import { DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS } from "@zcode/shared";
 import { ZCODE_PLUGIN_HOST_COMMAND } from "@zcode/contracts";
-import type { Logger } from "@zcode/contracts";
+import type { Logger, PluginDiscoverRequest } from "@zcode/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { resolveStartupPlugins } from "../src/app/startup-marks.js";
 import {
+  createOfficialPluginPreparation,
   findMissingOfficialPluginSeedPaths,
   resolveOfficialPluginRoots,
 } from "../src/app/bundled-plugins.js";
@@ -61,6 +65,13 @@ it("computer-use 默认不启用（电脑控制需用户在设置页显式开启
     false,
   );
 });
+it("design 默认关闭，等待用户安装或启用", () => {
+  const design = OFFICIAL_PLUGIN_DEFINITIONS.find((definition) => definition.name === "design");
+  expect(design).toBeDefined();
+  expect(design?.defaultEnabled ?? false).toBe(false);
+  expect(DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS.has("design@zcode-plugins-official")).toBe(false);
+});
+
 const ANDROID_EMULATOR_PLUGIN_ID = "android-emulator@zcode-plugins-official";
 const IOS_SIMULATOR_MCP_ID = "plugin:ios-simulator:ios-simulator";
 const ANDROID_EMULATOR_MCP_ID = "plugin:android-emulator:android-emulator";
@@ -90,7 +101,7 @@ const OFFICIAL_ANDROID_PLUGIN_CACHE_PATH = join(
   "cache",
   "zcode-plugins-official",
   "android-emulator",
-  "0.1.0",
+  "0.1.3",
 );
 const OFFICIAL_RESTORE_LEGACY_SESSIONS_PLUGIN_CACHE_PATH = join(
   "cache",
@@ -112,6 +123,62 @@ const BUNDLED_ANDROID_PLUGIN_DIST_PATH = fileURLToPath(
 );
 
 describe("ZCode plugins", () => {
+  it("uses the existing Runtime identity for shared startup and facade discovery", async () => {
+    const root = await mkdtemp(join(tmpdir(), "zcode-runtime-plugin-scope-"));
+    const discoverPlugins = vi.fn(async (_request: PluginDiscoverRequest) => ({
+      commandRoots: [],
+      diagnostics: [],
+      hooks: {},
+      mcpServers: {},
+      plugins: [],
+      skillRoots: [],
+    }));
+    const options = {
+      env: {},
+      pluginStorageRoot: join(root, "plugins"),
+      pluginDiscovery: { discoverPlugins },
+      pluginPreparation: {
+        startupDegraded: false,
+        resolvePlugins: async (resolve: () => ReturnType<typeof discoverPlugins>) =>
+          await resolve(),
+        signal: new AbortController().signal,
+        prepare: async () => [],
+        invalidate() {},
+        async dispose() {},
+      },
+      runtimeConfig: {
+        memory: { workspaceIdentity: "remote-workspace" },
+        remoteSessionId: "attachment-one",
+      },
+    };
+    try {
+      const configResult = createConfig({ env: {}, skipUserConfig: true, workingDirectory: root });
+      await resolveStartupPlugins({
+        cliStorageRoot: join(root, "cli"),
+        configResult,
+        options,
+        startupTimer: createNoopStartupTimer(),
+        workingDirectory: root,
+      });
+      const facade = createPluginFacadeForApp({
+        configResult,
+        options: options as ZCodeAppOptions,
+        workingDirectory: root,
+      });
+      await facade.listPlugins();
+      expect(discoverPlugins).toHaveBeenCalledTimes(2);
+      for (const call of discoverPlugins.mock.calls) {
+        expect(call[0]).toMatchObject({
+          workingDirectory: root,
+          workspaceIdentity: "remote-workspace",
+          remoteSessionId: "attachment-one",
+        });
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("starts cached Claude icon migration without blocking overview callers", async () => {
     const root = await mkdtemp(join(tmpdir(), "zcode-bootstrap-icon-migration-"));
     const pluginStorageRoot = join(root, "plugins");
@@ -195,6 +262,49 @@ describe("ZCode plugins", () => {
     }
   });
 
+  it("declares the LibreOffice launcher and full private profile for every document cache", () => {
+    for (const [name, version] of [
+      ["documents", "0.2.10"],
+      ["pdf", "0.2.11"],
+      ["presentations", "0.2.10"],
+      ["spreadsheets", "0.2.10"],
+    ]) {
+      const plugin = OFFICIAL_PLUGIN_DEFINITIONS.find((item) => item.name === name);
+      expect(plugin?.version, name).toBe(version);
+      expect(plugin?.requiredSeedPaths, name).toEqual(
+        expect.arrayContaining([
+          "scripts/zcode_libreoffice.py",
+          "scripts/libreoffice-profile/user/registrymodifications.xcu",
+          "scripts/libreoffice-profile/user/basic/script.xlc",
+          "scripts/libreoffice-profile/user/basic/dialog.xlc",
+          "scripts/libreoffice-profile/user/basic/Standard/script.xlb",
+          "scripts/libreoffice-profile/user/basic/Standard/dialog.xlb",
+          "scripts/libreoffice-profile/user/basic/Standard/ZCode.xba",
+        ]),
+      );
+    }
+  });
+
+  it("ships the four document plugins without the visual-judge subagent", async () => {
+    // 文档插件不再提供 visual-judge 子代理：manifest 不再声明 agents 目录，seed 也不再要求子代理文件，
+    // 否则设置页子智能体列表仍会出现 <插件名>:visual-judge。
+    const packagesRoot = fileURLToPath(new URL("../../", import.meta.url));
+    for (const name of ["documents", "pdf", "presentations", "spreadsheets"]) {
+      const plugin = OFFICIAL_PLUGIN_DEFINITIONS.find((item) => item.name === name);
+      const packageRoot = join(packagesRoot, `${name}-plugin`);
+      const pluginManifest = JSON.parse(
+        await readFile(join(packageRoot, ".zcode-plugin", "plugin.json"), "utf8"),
+      ) as { agents?: unknown };
+      expect(plugin?.defaultEnabled, name).toBe(true);
+      expect(pluginManifest.agents, name).toBeUndefined();
+      expect(existsSync(join(packageRoot, "agents")), name).toBe(false);
+      expect(
+        plugin?.requiredSeedPaths?.some((path) => path.startsWith("agents/")),
+        name,
+      ).toBe(false);
+    }
+  });
+
   it("declares the ui component type exactly for bundled plugins with UI surfaces", async () => {
     const packagesRoot = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -204,10 +314,9 @@ describe("ZCode plugins", () => {
         await readFile(join(packageRoot, ".zcode-plugin", "plugin.json"), "utf8"),
       ) as { ui?: { surfaces?: unknown[] } };
       // 卸载后的可恢复条目没有运行时信息，商店只能靠定义里的 componentTypes 归入「UI 插件」。
-      expect(
-        plugin.componentTypes?.includes("ui") ?? false,
-        plugin.name,
-      ).toBe((pluginManifest.ui?.surfaces?.length ?? 0) > 0);
+      expect(plugin.componentTypes?.includes("ui") ?? false, plugin.name).toBe(
+        (pluginManifest.ui?.surfaces?.length ?? 0) > 0,
+      );
     }
   });
 
@@ -223,6 +332,48 @@ describe("ZCode plugins", () => {
     ).toEqual([OFFICIAL_BROWSER_USE_REQUIRED_SEED_PATHS.at(-1)]);
   });
 
+  it.each([undefined, true, false])(
+    "resolves design default and explicit preference: %s",
+    async (enabled) => {
+      const root = await mkdtemp(join(tmpdir(), "zcode-design-default-"));
+      try {
+        const userConfigPath = join(root, "config.json");
+        await writeFile(
+          userConfigPath,
+          JSON.stringify({
+            plugins: {
+              enabledPlugins:
+                enabled === undefined ? {} : { "design@zcode-plugins-official": enabled },
+            },
+          }),
+        );
+        const outcome = await resolveZCodePlugins({
+          env: {},
+          pluginStorageRoot: join(root, "plugins"),
+          userConfigPath,
+          workingDirectory: root,
+        });
+        const design = outcome.plugins.find(
+          (plugin) => plugin.id === "design@zcode-plugins-official",
+        );
+        expect(design).toBeDefined();
+        expect(design?.enabled).toBe(enabled === true);
+        expect(
+          outcome.skillRoots.some(
+            (skillRoot) => skillRoot.pluginId === "design@zcode-plugins-official",
+          ),
+        ).toBe(enabled === true);
+        expect(
+          outcome.hooks.SessionStart?.some((matcher) =>
+            matcher.hooks.some((hook) => hook.plugin?.id === "design@zcode-plugins-official"),
+          ) ?? false,
+        ).toBe(enabled === true);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("can disable one document plugin without disabling the other formats or search", async () => {
     const root = await mkdtemp(join(tmpdir(), "zcode-document-toggle-"));
     try {
@@ -233,7 +384,7 @@ describe("ZCode plugins", () => {
           plugins: { enabledPlugins: { "documents@zcode-plugins-official": false } },
         }),
       );
-      const outcome = resolveZCodePlugins({
+      const outcome = await resolveZCodePlugins({
         env: {},
         pluginStorageRoot: join(root, "plugins"),
         userConfigPath,
@@ -275,7 +426,7 @@ describe("ZCode plugins", () => {
         }),
       );
 
-      const outcome = listZCodePlugins({
+      const outcome = await listZCodePlugins({
         env: {},
         pluginStorageRoot,
         skipUserConfig: true,
@@ -300,12 +451,12 @@ describe("ZCode plugins", () => {
       const pluginStorageRoot = join(root, "plugins");
 
       // First seed normally so the cache dir exists.
-      resolveOfficialPluginRoots({ storageRoot: pluginStorageRoot });
+      await resolveOfficialPluginRoots({ storageRoot: pluginStorageRoot });
       const seededDir = join(pluginStorageRoot, OFFICIAL_SKILL_CREATOR_PLUGIN_CACHE_PATH);
       await stat(seededDir); // exists
 
       // Now suppress it and re-resolve.
-      resolveOfficialPluginRoots({
+      await resolveOfficialPluginRoots({
         storageRoot: pluginStorageRoot,
         suppressedBuiltins: new Set([SKILL_CREATOR_PLUGIN_ID]),
       });
@@ -387,7 +538,7 @@ describe("ZCode plugins", () => {
       }
       await writeFile(manifestPath, JSON.stringify(manifest));
 
-      const overview = getZCodePluginsOverview({
+      const overview = await getZCodePluginsOverview({
         pluginStorageRoot,
         userConfigPath: configPath,
         workingDirectory: root,
@@ -460,7 +611,7 @@ describe("ZCode plugins", () => {
         }),
       );
 
-      const overview = getZCodePluginsOverview({
+      const overview = await getZCodePluginsOverview({
         pluginStorageRoot,
         userConfigPath: configPath,
         workingDirectory: root,
@@ -528,7 +679,7 @@ describe("ZCode plugins", () => {
         }),
       );
 
-      const overview = getZCodePluginsOverview({
+      const overview = await getZCodePluginsOverview({
         pluginStorageRoot,
         userConfigPath: configPath,
         workingDirectory: root,
@@ -557,7 +708,7 @@ describe("ZCode plugins", () => {
         }),
       );
 
-      const overview = getZCodePluginsOverview({
+      const overview = await getZCodePluginsOverview({
         pluginStorageRoot,
         userConfigPath,
         workingDirectory: root,
@@ -579,7 +730,7 @@ describe("ZCode plugins", () => {
         userConfigPath,
         JSON.stringify({ plugins: { enabled: true, suppressedBuiltins: [documentsId] } }),
       );
-      const overview = getZCodePluginsOverview({
+      const overview = await getZCodePluginsOverview({
         pluginStorageRoot,
         userConfigPath,
         workingDirectory: root,
@@ -601,7 +752,7 @@ describe("ZCode plugins", () => {
 
     try {
       const pluginStorageRoot = join(root, "plugins");
-      const overview = getZCodePluginsOverview({
+      const overview = await getZCodePluginsOverview({
         env: {},
         pluginStorageRoot,
         skipUserConfig: true,
@@ -745,6 +896,112 @@ describe("ZCode plugins", () => {
     }
   });
 
+  it("两个独立 CLI 同时安装到同一个 Host 时，缓存、安装记录和默认启用项均保留", async () => {
+    const root = await mkdtemp(join(tmpdir(), "zcode-plugin-processes-"));
+    const pluginStorageRoot = join(root, "plugins");
+    const userConfigPath = join(root, "config.json");
+    const names = ["first", "second"];
+    const archives = names.map((name) =>
+      createStoredZip([
+        {
+          path: `${name}/.zcode-plugin/plugin.json`,
+          content: JSON.stringify({ name, version: "1.0.0" }),
+        },
+      ]),
+    );
+    const firstDownload = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const server = createServer(async (req, res) => {
+      const index = req.url === "/first.zip" ? 0 : 1;
+      if (index === 0) {
+        firstDownload.resolve();
+        await release.promise;
+      }
+      res.end(archives[index]);
+    });
+    const workers: Promise<unknown>[] = [];
+    try {
+      await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("missing fixture port");
+      await writeTestFile(
+        join(pluginStorageRoot, "marketplaces", "fixture", "marketplace.json"),
+        JSON.stringify({
+          name: "fixture",
+          plugins: names.map((name, i) => ({
+            name,
+            source: {
+              source: "url",
+              type: "zip",
+              url: `http://127.0.0.1:${address.port}/${name}.zip`,
+              sha256: hashBytes(archives[i]!),
+            },
+          })),
+        }),
+      );
+      await Promise.all(names.map((name) => mkdir(join(root, name))));
+      const install = (name: string) => {
+        const run = promisify(execFile)(process.execPath, [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "-e",
+          `const { installZCodeMarketplacePlugin } = await import(process.argv[1]);
+          const options = JSON.parse(process.argv[2]);
+          process.stdout.write("ready\\n");
+          const result = await installZCodeMarketplacePlugin(options);
+          if (result.installedPlugins.length !== 1) throw new Error(JSON.stringify(result));`,
+          new URL("../src/plugins.ts", import.meta.url).href,
+          JSON.stringify({
+            pluginName: name,
+            marketplace: "fixture",
+            pluginStorageRoot,
+            userConfigPath,
+            workingDirectory: join(root, name),
+          }),
+        ]);
+        workers.push(run);
+        return run;
+      };
+      const first = install("first");
+      await Promise.race([
+        firstDownload.promise,
+        first.then(() => {
+          throw new Error("first installation did not fetch the archive");
+        }),
+      ]);
+      const second = install("second");
+      const ready = new Promise<void>((done) => second.child.stdout!.once("data", () => done()));
+      await Promise.race([ready, second]);
+      // 第一个 writer 已读库存；给第二个真实进程机会完成安装，再放行第一个下载。
+      await Promise.race([second, delay(500)]);
+      release.resolve();
+      await Promise.all(workers);
+      const state = JSON.parse(
+        await readFile(join(pluginStorageRoot, "installed_plugins.json"), "utf8"),
+      );
+      expect(state.plugins.map((p: { id: string }) => p.id).sort()).toEqual(
+        names.map((n) => `${n}@fixture`),
+      );
+      for (const record of state.plugins) {
+        expect(
+          JSON.parse(
+            await readFile(join(record.installPath, ".zcode-plugin", "plugin.json"), "utf8"),
+          ).name,
+        ).toBe(record.name);
+      }
+      expect(JSON.parse(await readFile(userConfigPath, "utf8")).plugins.enabledPlugins).toEqual({
+        "first@fixture": true,
+        "second@fixture": true,
+      });
+    } finally {
+      release.resolve();
+      await Promise.allSettled(workers);
+      await closeServer(server);
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it("installs and enables a marketplace plugin from a zip URL source through the facade", async () => {
     const root = await mkdtemp(join(tmpdir(), "zcode-bootstrap-zip-marketplace-install-"));
     const pluginStorageRoot = join(root, "plugins");
@@ -825,7 +1082,7 @@ describe("ZCode plugins", () => {
         existsSync(join(result.installedPlugins[0]?.installPath ?? "", "agents", "judge.md")),
       ).toBe(true);
 
-      const overviewResult = getZCodePluginsOverview({
+      const overviewResult = await getZCodePluginsOverview({
         pluginStorageRoot,
         userConfigPath: configPath,
         workingDirectory: root,
@@ -843,7 +1100,7 @@ describe("ZCode plugins", () => {
     }
   });
 
-  it("respects an explicit disabled choice when reinstalling a plugin", async () => {
+  it.each(["user", "workspace"] as const)("preserves an explicit %s disable when installing a plugin", async (scope) => {
     const root = await mkdtemp(join(tmpdir(), "zcode-bootstrap-reinstall-disabled-"));
     const pluginStorageRoot = join(root, "plugins");
     const marketplaceRoot = join(root, "marketplace");
@@ -872,9 +1129,11 @@ describe("ZCode plugins", () => {
         JSON.stringify({ name: "hello", skills: "skills" }),
       );
       await writeTestFile(join(pluginRoot, "skills", "hello", "SKILL.md"), "# hello");
-      // 用户先前显式停用过该插件。
+      // User 安装不能覆盖 User 或 Workspace 已有的禁用选择。
+      const projectConfigPath = join(root, ".zcode", "config.json");
+      const overridePath = scope === "user" ? configPath : projectConfigPath;
       await writeTestFile(
-        configPath,
+        overridePath,
         JSON.stringify({
           plugins: { enabledPlugins: { "hello@lazy-market": false } },
         }),
@@ -888,12 +1147,13 @@ describe("ZCode plugins", () => {
         workingDirectory: root,
       });
 
-      // 显式 false 不被默认启用覆盖。
-      expect(result.installedPlugins[0]).toMatchObject({
-        id: "hello@lazy-market",
-        enabled: false,
+      expect(result.installedPlugins[0]?.id).toBe("hello@lazy-market");
+      if (scope === "user") expect(result.installedPlugins[0]?.enabled).toBe(false);
+      const { plugins } = await resolveZCodePlugins({
+        pluginStorageRoot, projectConfigPath, userConfigPath: configPath, workingDirectory: root,
       });
-      const persisted = JSON.parse(await readFile(configPath, "utf8")) as {
+      expect(plugins.find((plugin) => plugin.id === "hello@lazy-market")?.enabled).toBe(false);
+      const persisted = JSON.parse(await readFile(overridePath, "utf8")) as {
         plugins?: { enabledPlugins?: Record<string, boolean> };
       };
       expect(persisted.plugins?.enabledPlugins?.["hello@lazy-market"]).toBe(false);
@@ -1136,7 +1396,7 @@ describe("ZCode plugins", () => {
       );
 
       // Seed first so its cache exists.
-      resolveZCodePlugins({
+      await resolveZCodePlugins({
         pluginStorageRoot,
         userConfigPath,
         workingDirectory: root,
@@ -1158,7 +1418,7 @@ describe("ZCode plugins", () => {
       expect(config.plugins.options?.[SKILL_CREATOR_PLUGIN_ID]).toBeUndefined();
 
       // Re-resolve: Runtime stays gone, but Catalog/cache remain readable for detail/restore.
-      const outcome = resolveZCodePlugins({
+      const outcome = await resolveZCodePlugins({
         pluginStorageRoot,
         userConfigPath,
         workingDirectory: root,
@@ -1228,6 +1488,59 @@ describe("ZCode plugins", () => {
     }
   });
 
+  it.each(["restore", "install", "prepare-failed"] as const)(
+    "keeps suppression unchanged when %s cannot prepare plugins",
+    async (entry) => {
+      const root = await mkdtemp(join(tmpdir(), "zcode-degraded-restore-"));
+      const userConfigPath = join(root, "config.json");
+      const before = JSON.stringify({
+        plugins: { enabled: true, suppressedBuiltins: [SKILL_CREATOR_PLUGIN_ID] },
+      });
+      const pluginPreparation = createOfficialPluginPreparation(
+        entry === "prepare-failed" ? undefined : { startupTimeoutMs: 0 },
+      );
+      try {
+        if (entry === "prepare-failed")
+          vi.spyOn(pluginPreparation, "prepare").mockRejectedValue(
+            Object.assign(new Error("Plugin startup timed out"), {
+              code: "ZCODE_PLUGIN_STARTUP_TIMEOUT",
+            }),
+          );
+        else await pluginPreparation.resolvePlugins(() => new Promise(() => {}));
+        await writeFile(userConfigPath, before);
+        const options = {
+          pluginPreparation,
+          pluginStorageRoot: join(root, "plugins"),
+          userConfigPath,
+          workingDirectory: root,
+        };
+        const catalog = join(options.pluginStorageRoot, "marketplaces", "zcode-plugins-official");
+        await mkdir(catalog, { recursive: true });
+        await writeFile(
+          join(catalog, "marketplace.json"),
+          JSON.stringify({
+            name: "zcode-plugins-official",
+            plugins: [{ name: "skill-creator", source: "filesystem" }],
+          }),
+        );
+        const restore =
+          entry !== "install"
+            ? restoreBuiltinPlugin({ ...options, pluginId: SKILL_CREATOR_PLUGIN_ID })
+            : installZCodeMarketplacePlugin({
+                ...options,
+                marketplace: "zcode-plugins-official",
+                pluginName: "skill-creator",
+              });
+        await expect(restore).rejects.toMatchObject({ code: "ZCODE_PLUGIN_STARTUP_TIMEOUT" });
+        expect(await readFile(userConfigPath, "utf8")).toBe(before);
+        expect(existsSync(join(options.pluginStorageRoot, "installed_plugins.json"))).toBe(false);
+      } finally {
+        await pluginPreparation.dispose();
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("restores a suppressed built-in so it re-seeds on next resolve", async () => {
     const root = await mkdtemp(join(tmpdir(), "zcode-bootstrap-restore-builtin-"));
     const pluginStorageRoot = join(root, "plugins");
@@ -1245,7 +1558,7 @@ describe("ZCode plugins", () => {
       );
 
       // Suppressed: not present.
-      let outcome = resolveZCodePlugins({
+      let outcome = await resolveZCodePlugins({
         pluginStorageRoot,
         userConfigPath,
         workingDirectory: root,
@@ -1262,7 +1575,7 @@ describe("ZCode plugins", () => {
       const config = JSON.parse(await readFile(userConfigPath, "utf8"));
       expect(config.plugins.suppressedBuiltins ?? []).not.toContain(SKILL_CREATOR_PLUGIN_ID);
 
-      outcome = resolveZCodePlugins({
+      outcome = await resolveZCodePlugins({
         pluginStorageRoot,
         userConfigPath,
         workingDirectory: root,
@@ -1290,7 +1603,7 @@ describe("ZCode plugins", () => {
       );
 
       // 先写入完整 Catalog/cache，模拟详情页仍可见但 Runtime 被抑制的状态。
-      resolveZCodePlugins({
+      await resolveZCodePlugins({
         pluginStorageRoot,
         userConfigPath,
         workingDirectory: root,
@@ -1348,7 +1661,7 @@ describe("ZCode plugins", () => {
         "# Document Skills\n",
       );
 
-      resolveZCodePlugins({
+      await resolveZCodePlugins({
         pluginStorageRoot,
         userConfigPath,
         workingDirectory: root,
@@ -1474,7 +1787,7 @@ describe("ZCode plugins", () => {
         pluginStorageRoot,
         workingDirectory: root,
       });
-      const overview = getZCodePluginsOverview({
+      const overview = await getZCodePluginsOverview({
         pluginStorageRoot,
         skipUserConfig: true,
         workingDirectory: root,
@@ -1564,7 +1877,7 @@ describe("ZCode plugins", () => {
     }
   });
 
-  it("reseeds official plugin cache when hook executable mode changes", async () => {
+  it("preserves hook executable mode when rebuilding an older filesystem version", async () => {
     const root = await mkdtemp(join(tmpdir(), "zcode-bootstrap-plugin-mode-reseed-"));
     const entryRoot = join(root, "resources", "glm");
     const pluginStorageRoot = join(root, "plugins");
@@ -1591,21 +1904,17 @@ describe("ZCode plugins", () => {
       );
       await writeTestFile(join(pluginRoot, "skills", "skill-creator", "SKILL.md"), "# skill");
 
-      const seedFiles = await hashFixtureSeedFiles(pluginRoot, [
-        ".zcode-plugin/plugin.json",
-        "hooks/hooks.json",
-        "hooks/run-hook.cmd",
-        "skills/skill-creator/SKILL.md",
-      ]);
-      await writeTestFile(join(targetRoot, ".zcode-plugin", "plugin.json"), "{}");
+      await writeTestFile(
+        join(targetRoot, ".zcode-plugin", "plugin.json"),
+        JSON.stringify({ name: "skill-creator" }),
+      );
       await writeTestFile(join(targetRoot, "hooks", "run-hook.cmd"), "#!/usr/bin/env bash\n");
       await writeTestFile(
         join(targetRoot, ".zcode-plugin-seed.json"),
         JSON.stringify({
-          hash: hashText(JSON.stringify(seedFiles.map(({ path, sha256 }) => [path, sha256]))),
           marketplace: "zcode-plugins-official",
           plugin: "skill-creator",
-          pluginVersion: "0.1.0",
+          pluginVersion: "0.0.0",
           source: "filesystem",
           version: 1,
         }),
@@ -1613,7 +1922,7 @@ describe("ZCode plugins", () => {
       expect((await stat(join(targetRoot, "hooks", "run-hook.cmd"))).mode & 0o111).toBe(0);
 
       process.argv[1] = join(entryRoot, "zcode.cjs");
-      resolveOfficialPluginRoots({ storageRoot: pluginStorageRoot });
+      await resolveOfficialPluginRoots({ storageRoot: pluginStorageRoot });
 
       expect((await stat(join(targetRoot, "hooks", "run-hook.cmd"))).mode & 0o111).not.toBe(0);
     } finally {
@@ -1639,7 +1948,7 @@ describe("ZCode plugins", () => {
         }),
       );
 
-      const outcome = resolveZCodePlugins({
+      const outcome = await resolveZCodePlugins({
         env: {},
         pluginStorageRoot,
         userConfigPath: configPath,
@@ -1702,7 +2011,7 @@ describe("ZCode plugins", () => {
         }),
       );
 
-      const outcome = resolveZCodePlugins({
+      const outcome = await resolveZCodePlugins({
         env: {},
         pluginStorageRoot,
         userConfigPath: configPath,
@@ -1789,7 +2098,7 @@ describe("ZCode plugins", () => {
         }),
       );
 
-      const outcome = resolveZCodePlugins({
+      const outcome = await resolveZCodePlugins({
         env: {},
         pluginStorageRoot,
         userConfigPath: configPath,
@@ -1834,7 +2143,7 @@ describe("ZCode plugins", () => {
           "cache",
           "zcode-plugins-official",
           "android-emulator",
-          "0.1.0",
+          "0.1.3",
           "dist",
           "mcp",
           "server.js",
@@ -1921,11 +2230,13 @@ describe("ZCode plugins", () => {
       });
       expect(reloadedConfig.config.plugins.dirs).toEqual([pluginRoot]);
       expect(
-        resolveZCodePlugins({
-          configResult: reloadedConfig,
-          pluginStorageRoot,
-          workingDirectory: root,
-        }).plugins.map((plugin) => plugin.id),
+        (
+          await resolveZCodePlugins({
+            configResult: reloadedConfig,
+            pluginStorageRoot,
+            workingDirectory: root,
+          })
+        ).plugins.map((plugin) => plugin.id),
       ).toContain(pluginId);
       await configureZCodePlugin({
         options: { region: "eu-west-1" },
@@ -1969,7 +2280,12 @@ describe("ZCode plugins", () => {
       expect(userConfig.plugins?.options?.[pluginId]?.token).toBeUndefined();
       expect(workspaceConfig.plugins?.enabledPlugins?.[pluginId]).toBe(true);
       expect(workspaceConfig.plugins?.options?.[pluginId]?.token).toBeUndefined();
-      expect(workspaceConfig.plugins?.options?.[pluginId]?.region).toBe("eu-west-1");
+      expect(workspaceConfig.plugins?.options?.[pluginId]?.region).toBeUndefined();
+      expect(
+        JSON.parse(await readFile(join(root, "plugin-secrets.json"), "utf8")).workspaces[root][
+          pluginId
+        ],
+      ).toEqual({ region: "eu-west-1" });
     } finally {
       await rm(root, { force: true, recursive: true });
     }
@@ -2178,7 +2494,7 @@ describe("ZCode plugins", () => {
         }),
       );
 
-      const beforeRefresh = getZCodePluginsOverview({
+      const beforeRefresh = await getZCodePluginsOverview({
         env: {},
         pluginStorageRoot,
         userConfigPath,
@@ -2229,7 +2545,7 @@ describe("ZCode plugins", () => {
         existsSync(join(pluginStorageRoot, "marketplaces", marketplaceId, "marketplace.json")),
       ).toBe(true);
 
-      const afterRefresh = getZCodePluginsOverview({
+      const afterRefresh = await getZCodePluginsOverview({
         env: {},
         pluginStorageRoot,
         userConfigPath,
@@ -2312,7 +2628,7 @@ describe("ZCode plugins", () => {
         workingDirectory: root,
       });
       expect(configResult.config.plugins?.extraKnownMarketplaces?.[marketplaceId]).toBeUndefined();
-      const overview = getZCodePluginsOverview({
+      const overview = await getZCodePluginsOverview({
         env: {},
         pluginStorageRoot: join(root, "plugins"),
         userConfigPath: join(root, "user-config.json"),
@@ -2344,7 +2660,7 @@ describe("ZCode plugins", () => {
         }),
       );
 
-      const overview = getZCodePluginsOverview({
+      const overview = await getZCodePluginsOverview({
         env: {},
         pluginStorageRoot: join(root, "plugins"),
         userConfigPath,
@@ -2385,7 +2701,7 @@ describe("ZCode plugins", () => {
         }),
       );
 
-      const overview = getZCodePluginsOverview({
+      const overview = await getZCodePluginsOverview({
         env: {},
         pluginStorageRoot,
         userConfigPath,
@@ -2544,10 +2860,8 @@ describe("ZCode plugins", () => {
 
       expect(result.diagnostics).toEqual([expect.objectContaining({ severity: "error" })]);
       expect(existsSync(join(pluginStorageRoot, "marketplaces", marketplaceId))).toBe(false);
-      const known = JSON.parse(
-        await readFile(join(pluginStorageRoot, "known_marketplaces.json"), "utf8"),
-      ) as { marketplaces: Array<{ id: string }> };
-      expect(known.marketplaces.some((item) => item.id === marketplaceId)).toBe(false);
+      // 已取消的请求连默认市场都不应登记；既没有缓存，也没有修改安装状态。
+      expect(existsSync(join(pluginStorageRoot, "known_marketplaces.json"))).toBe(false);
     } finally {
       await rm(root, { force: true, recursive: true });
     }
@@ -2572,7 +2886,7 @@ describe("ZCode plugins", () => {
         skipUserConfig: true,
         workingDirectory: root,
       });
-      const outcome = resolveStartupPlugins({
+      const outcome = await resolveStartupPlugins({
         cliStorageRoot: join(root, "cli"),
         configResult,
         env: {},
@@ -2743,23 +3057,6 @@ async function writeKnownMarketplaces(
   );
 }
 
-async function hashFixtureSeedFiles(
-  rootPath: string,
-  paths: string[],
-): Promise<Array<{ path: string; sha256: string }>> {
-  const files = await Promise.all(
-    paths.map(async (path) => ({
-      path,
-      sha256: hashBytes(await readFile(join(rootPath, ...path.split("/")))),
-    })),
-  );
-  return files.sort((left, right) => left.path.localeCompare(right.path));
-}
-
 function hashBytes(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
-}
-
-function hashText(text: string): string {
-  return hashBytes(Buffer.from(text));
 }

@@ -6,14 +6,61 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createNodeProviderRuntimePathEnv } from "@zcode/provider-node";
 
 const telemetryMocks = vi.hoisted(() => ({
+  preparationOptions: [] as unknown[],
+  discoveryOwners: [] as unknown[],
+  disposePluginDiscovery: vi.fn(),
+  preparePlugins: vi.fn(async () => []),
+  disposePluginPreparation: vi.fn(async () => {}),
+  createdApp: vi.fn(),
+  preparationOwners: [] as unknown[],
   closeMcp: vi.fn(async () => {}),
   emitMcpOnStart: false,
   emitToolOnAppCreate: false,
+  appOptions: [] as Array<{ mcpStartupPolicy?: string }>,
   disposeProcessProviderRegistryRuntime: vi.fn(),
   disposeProviderRegistryRuntime: vi.fn(),
   prepareModelTelemetryEnv: vi.fn(async (env: Record<string, string | undefined>) => env),
   shutdownPreparedModelTelemetry: vi.fn(async () => {}),
 }));
+
+vi.mock("@zcode/adapters/plugins", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@zcode/adapters/plugins")>();
+  return {
+    ...original,
+    createNodePluginAdapter(options: Parameters<typeof original.createNodePluginAdapter>[0]) {
+      const adapter = original.createNodePluginAdapter(options);
+      const dispose = adapter.dispose.bind(adapter);
+      adapter.dispose = () => {
+        telemetryMocks.disposePluginDiscovery();
+        dispose();
+      };
+      telemetryMocks.discoveryOwners.push(adapter);
+      return adapter;
+    },
+  };
+});
+
+vi.mock("../src/app/bundled-plugins.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/app/bundled-plugins.js")>();
+  return {
+    ...original,
+    createOfficialPluginPreparation(
+      options: Parameters<typeof original.createOfficialPluginPreparation>[0],
+    ) {
+      const owner = {
+        startupDegraded: false,
+        resolvePlugins: async (resolve: () => Promise<unknown>) => await resolve(),
+        prepare: telemetryMocks.preparePlugins,
+        dispose: telemetryMocks.disposePluginPreparation,
+        invalidate: () => {},
+        signal: new AbortController().signal,
+      };
+      telemetryMocks.preparationOptions.push(options);
+      telemetryMocks.preparationOwners.push(owner);
+      return owner;
+    },
+  };
+});
 
 vi.mock("../src/app/process-provider-registry-runtime.js", async (importOriginal) => {
   const original =
@@ -104,6 +151,8 @@ vi.mock("../src/app/create-app.js", async (importOriginal) => {
   return {
     ...original,
     async createZCodeApp(options: Parameters<typeof original.createZCodeApp>[0]) {
+      telemetryMocks.createdApp(options);
+      telemetryMocks.appOptions.push(options ?? {});
       if (telemetryMocks.emitToolOnAppCreate)
         options.onToolExecResource?.({
           platform: "linux",
@@ -136,6 +185,31 @@ describe("ZCode Protocol telemetry lifecycle", () => {
     vi.clearAllMocks();
     telemetryMocks.emitMcpOnStart = false;
     telemetryMocks.emitToolOnAppCreate = false;
+    telemetryMocks.preparationOwners = [];
+    telemetryMocks.discoveryOwners = [];
+    telemetryMocks.preparationOptions = [];
+    telemetryMocks.appOptions = [];
+  });
+
+  it("does not enable the plugin startup budget or emit a degraded notification", async () => {
+    const chunks: string[] = [];
+    await runProtocolAgent(undefined, chunks);
+    // 冷启动 seed 在 Windows 实测约 3 秒，协议进程停用 3 秒预算；入口不得再传预算参数。
+    expect(telemetryMocks.preparationOptions).toEqual([undefined]);
+    const messages = chunks
+      .join("")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    expect(messages.some((message) => message.method === "startup/pluginsDegraded")).toBe(false);
+  });
+
+  it("prewarms plugins without a session and disposes the process preparation owner", async () => {
+    await runProtocolAgent(undefined);
+    expect(telemetryMocks.preparePlugins).toHaveBeenCalledOnce();
+    expect(telemetryMocks.createdApp).not.toHaveBeenCalled();
+    expect(telemetryMocks.disposePluginPreparation).toHaveBeenCalledOnce();
+    expect(telemetryMocks.disposePluginDiscovery).toHaveBeenCalledOnce();
   });
 
   it.each([
@@ -207,6 +281,12 @@ describe("ZCode Protocol telemetry lifecycle", () => {
     telemetryMocks.emitToolOnAppCreate = true;
     const chunks: string[] = [];
     await runProtocolAgent(undefined, chunks, true);
+    expect(telemetryMocks.createdApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pluginPreparation: telemetryMocks.preparationOwners[0],
+        pluginDiscovery: telemetryMocks.discoveryOwners[0],
+      }),
+    );
     const messages = chunks
       .join("")
       .split("\n")
@@ -220,6 +300,15 @@ describe("ZCode Protocol telemetry lifecycle", () => {
         method: "process/toolExecResource",
         params: expect.objectContaining({ toolName: "bash", durationMs: 40000 }),
       },
+    ]);
+  });
+
+  it("桌面协议入口按交互会话请求 background MCP 启动", async () => {
+    // 复用回调测试的短路：App 装配处抛错，避免真实装配，只看入口传入的选项。
+    telemetryMocks.emitToolOnAppCreate = true;
+    await runProtocolAgent(undefined, [], true);
+    expect(telemetryMocks.appOptions.map((options) => options.mcpStartupPolicy)).toEqual([
+      "background",
     ]);
   });
 

@@ -3,9 +3,13 @@ function redactUnquotedPath(value: string): string {
   // 诊断尾部和已经脱敏的字段；其他无法消歧的尾部继续保守过滤，生产者应给路径加引号。
   // Bug 原因：Docker 错误在 URL 后还会输出裸 socket 路径，旧规则连同末尾的 connect
   // 系统错误一起吞掉；只放行有明确分隔符的这三种诊断，仍不按空格猜测路径边界。
+  // Bug 原因（ZCT-2115996335380615168）：glibc 过低时动态链接器输出
+  // `<程序>: <库>: version `GLIBC_2.28' not found (required by <程序>)`，裸路径一直匹配到 `'`，
+  // 缺失符号随路径一起被遮掉，用户只看到 `[redacted-path]' not found`。放行 `: version `<符号>`，
+  // 符号只含单词字符和点，不会带出路径片段。
   const suffix =
     value.match(
-      /(?:: connect: (?:no such file or directory|connection refused|permission denied)|(?:\s+(?:failed with exit code -?\d+|permission denied|no space left on device|read-only file system|[\w-]+=\[redacted\]))+)\.?$/iu,
+      /(?:: connect: (?:no such file or directory|connection refused|permission denied)|: version `[\w.]+|(?:\s+(?:failed with exit code -?\d+|permission denied|no space left on device|read-only file system|[\w-]+=\[redacted\]))+)\.?$/iu,
     )?.[0] ?? "";
   return `[redacted-path]${suffix}`;
 }
@@ -65,8 +69,23 @@ export function sanitizeRemoteConnectionLog(
   );
 }
 
+/**
+ * 上传/下载进度的传输键（传输类型 + 资源标识）；不是进度消息时返回 null。同一键只保留最新一行：
+ * Host 操作日志写入时按它合并，向导的实时连接日志也用它合并。消息可以带 `[source-server:<phase>]` 前缀。
+ */
+export function getRemoteTransferProgressKey(message: string): string | null {
+  const progressMessage = message.replace(/^\[source-server:[^\]]+\]\s*/u, "");
+  const downloadMatch = /^download progress:\s*(?:\[([^\]]+)\])?/iu.exec(progressMessage);
+  if (downloadMatch) return `download:${downloadMatch[1]?.trim() ?? ""}`;
+  const uploadMatch = /^upload progress(?: \[([^\]]+)\])?(?: \((.+)\))?:/iu.exec(progressMessage);
+  if (!uploadMatch) return null;
+  return `upload:${uploadMatch[1]?.trim() ?? ""}:${uploadMatch[2]?.trim() ?? ""}`;
+}
+
 export function remoteConnectionFailureLogLevel(code: string): "info" | "error" {
+  // 更新期间被拒绝的连接是等待点，不是连接失败；与等待安装确认一样记为 info。
   return code === "source-server-install-required" ||
+    code === "source-server-update-in-progress" ||
     code === "remote-connection-canceled" ||
     code === "remote-bind-canceled"
     ? "info"

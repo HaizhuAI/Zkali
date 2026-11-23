@@ -17,8 +17,9 @@ import { Button } from "@/components/ui/button.js";
 import { cn } from "@/components/lib/utils.js";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import type { ConversationShareAccessMode } from "@zcode/shared";
+import type { ConversationShareAccessMode, ConversationShareTtlOptions } from "@zcode/shared";
 import { ConversationSharePermissionPicker } from "@/ConversationSharePermissionPicker.js";
+import { ConversationShareExpiryPicker } from "@/conversation-share-interaction/ConversationShareExpiryPicker.js";
 import {
   DEFAULT_CONVERSATION_SHARE_ACCESS_MODE,
   type ConversationShareDisplayError,
@@ -26,6 +27,7 @@ import {
   type ConversationShareProgressPhase,
 } from "@/store/conversationShareSelectionStore.js";
 import {
+  conversationShareErrorRequiresChange,
   formatConversationShareAllowedArtifacts,
   formatConversationShareArtifactType,
   resolveConversationShareIssueMessageId,
@@ -54,6 +56,9 @@ export interface ConversationShareConfirmationDockProps {
   totalCount: number;
   title?: string;
   accessMode?: ConversationShareAccessMode;
+  /** 发布方服务端声明的有效期范围；缺省时不显示有效期选择。 */
+  ttlOptions?: ConversationShareTtlOptions;
+  ttlMs?: number | null;
   progressLabel?: string;
   progressPhase?: ConversationShareProgressPhase;
   completedArtifacts?: number;
@@ -63,6 +68,7 @@ export interface ConversationShareConfirmationDockProps {
   onConfirm: () => void;
   onTitleChange?: (title: string) => void;
   onAccessModeChange?: (accessMode: ConversationShareAccessMode) => void;
+  onTtlChange?: (ttlMs: number) => void;
   disclosureAccepted?: boolean;
   onDisclosureAcceptedChange?: (accepted: boolean) => void;
   pending?: boolean;
@@ -86,6 +92,8 @@ function ConversationShareConfirmationDockImpl({
   totalCount,
   title = "Share",
   accessMode = DEFAULT_CONVERSATION_SHARE_ACCESS_MODE,
+  ttlOptions,
+  ttlMs = null,
   progressLabel,
   progressPhase = "collecting",
   completedArtifacts = 0,
@@ -95,6 +103,7 @@ function ConversationShareConfirmationDockImpl({
   onConfirm,
   onTitleChange = NOOP,
   onAccessModeChange = NOOP,
+  onTtlChange = NOOP,
   disclosureAccepted = false,
   onDisclosureAcceptedChange = NOOP,
   pending = false,
@@ -167,8 +176,12 @@ function ConversationShareConfirmationDockImpl({
       : accessMode === "public_importable"
         ? "conversationShare.permission.linkEditorSummary"
         : "conversationShare.permission.privateSummary";
+  // 服务端已确定拒绝这份内容时，原样重试必然再次失败：先取消问题轮次、调整选择或关闭提示。
+  const retryRequiresChange = conversationShareErrorRequiresChange(error?.code);
   const footerMetaMessageId = error
-    ? "conversationShare.publish.failedFooter"
+    ? retryRequiresChange
+      ? "conversationShare.publish.failedFooterNeedsChange"
+      : "conversationShare.publish.failedFooter"
     : pending
       ? "conversationShare.publish.footerMeta"
       : "conversationShare.partial.selectionCount";
@@ -489,6 +502,13 @@ function ConversationShareConfirmationDockImpl({
                   )
                 }
               />
+              {ttlOptions ? (
+                <ConversationShareExpiryPicker
+                  options={ttlOptions}
+                  ttlMs={ttlMs}
+                  onChange={onTtlChange}
+                />
+              ) : null}
             </div>
             {/* 设计原因：敏感信息确认需要保留警示语义，但把详细检查范围收进锚定浮层，避免确认 dock 被长文案撑高。 */}
             <section
@@ -627,7 +647,10 @@ function ConversationShareConfirmationDockImpl({
               >
                 <span className="min-w-0 flex-1">
                   {error.messageId
-                    ? intl.formatMessage({ id: error.messageId }, { status: error.status ?? "—" })
+                    ? intl.formatMessage(
+                        { id: error.messageId },
+                        { status: error.status ?? "—", seconds: error.retryAfterSeconds ?? "—" },
+                      )
                     : intl.formatMessage(
                         { id: "conversationShare.error.summary" },
                         { count: error.issueCount },
@@ -782,6 +805,7 @@ function ConversationShareConfirmationDockImpl({
                       {issue.productTurnId !== undefined && onDeselectTurn ? (
                         <button
                           type="button"
+                          data-testid="conversation-share-issue-deselect"
                           className="w-fit text-ui-sm font-medium text-foreground underline underline-offset-2"
                           onClick={() => onDeselectTurn?.(issue.productTurnId!)}
                         >
@@ -887,6 +911,7 @@ function ConversationShareConfirmationDockImpl({
                 pending ||
                 selectionEditing ||
                 publishDisabled ||
+                retryRequiresChange ||
                 selectedCount === 0 ||
                 !title.trim()
               }

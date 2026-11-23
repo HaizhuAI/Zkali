@@ -1,10 +1,12 @@
 import {
   Archive,
+  Share2,
   Folders,
   Monitor,
   Moon,
   Settings,
   Settings2,
+  SlidersHorizontal,
   Package,
   Bot,
   Palette,
@@ -102,6 +104,12 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     groupId: "agentCapabilities",
   },
   {
+    id: "agentBehavior",
+    icon: SlidersHorizontal,
+    titleId: "settings.agentBehavior.title",
+    groupId: "agentCapabilities",
+  },
+  {
     id: "memory",
     icon: Brain,
     titleId: "settings.memory",
@@ -156,14 +164,6 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     titleId: "settings.browser.title",
     groupId: "basics",
   },
-  // 原型导航顺序：浏览器之后才是远程设备；电脑控制继续紧随其后并受灰度门禁。
-  {
-    id: "remoteDevices",
-    icon: HardDrive,
-    titleId: "settings.remoteDevicesTitle",
-    contentTitleId: "settings.remoteDevicesTitle",
-    groupId: "basics",
-  },
   // 电脑控制紧跟「浏览器」：两者都是给 Agent 用的本机操控入口，
   // 放在基础设置里让用户在同一处理解「控制浏览器 / 控制整台电脑」的关系。
   {
@@ -172,7 +172,15 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     titleId: "settings.computerUse.title",
     groupId: "basics",
   },
-  // 键盘快捷键紧跟「电脑控制」：同属本机操控/效率配置，收纳在基础设置尾部。
+  // 远程设备放在电脑控制下方，保持浏览器与电脑控制两个本机操控入口相邻。
+  {
+    id: "remoteDevices",
+    icon: HardDrive,
+    titleId: "settings.remoteDevicesTitle",
+    contentTitleId: "settings.remoteDevicesTitle",
+    groupId: "basics",
+  },
+  // 键盘快捷键收纳在基础设置尾部，位于远程设备之后。
   {
     id: "shortcuts",
     icon: Keyboard,
@@ -211,6 +219,13 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     id: "archives",
     icon: Archive,
     titleId: "archives.nav",
+    groupId: "dataAndStats",
+  },
+  // 分享管理排在归档管理之后，仅桌面端（docs/conversation-share-v1.md「设置页分享管理」）。
+  {
+    id: "shares",
+    icon: Share2,
+    titleId: "conversationShare.manage.nav",
     groupId: "dataAndStats",
   },
   // 暂时隐藏设置页里的 Migration 入口，只保留页面实现，后续可以直接恢复这一项。
@@ -276,6 +291,7 @@ const DESKTOP_ONLY_SETTINGS_SECTIONS = new Set<SettingsSectionId>([
   "dataSync",
   "opencodezenPool",
   "allinGw",
+  "shares",
 ]);
 
 export function isSettingsSectionAvailable(

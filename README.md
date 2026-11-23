@@ -45,7 +45,7 @@ pnpm --filter @zcode/desktop bundle -- --os linux --arch x64
 
 - 发行版规格：`docs/zkali/2026-11-04-zkali-plugin-version-1-0-0-spec.md`
 - 构建说明与产物清单：`D:\Devin\zkali\BUILD.md`（独立插件包形态）
-- 上游 ZCode 原始 README：[README.upstream.md](README.upstream.md)
+- 上游 ZCode 原始 README：[README.upstream.md](README.upstream.md)；当前同步基线 **ZCode v4.0.0**（2026-11-23）
 
 ## 许可 / License
 

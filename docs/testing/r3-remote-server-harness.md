@@ -287,22 +287,22 @@ Host / Agent 最大数量各为 1。RSS 首尾采样 1220 / 1211 MB；这只是�
 落盘隔离；后者在用例内创建 TCP 代理并注入断连，整份 spec 顺序执行，不过滤其中的握手前断开场景。
 两者均保留 pending 状态；清单检查还需核对实际生成的执行计划，防止只登记 spec 却漏排队列。
 
-| 组                           | 档位                                       | 说明                                                                                                                                                         |
-| ---------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1 结构与恢复                 | `a`（entry-attribution 用 `a`+`c`）        | boundary / ack-loss / mixed / recovery / renderer / shared-waiters / source-lines / stale-gen / transport-loss                                               |
-| 2 UI / 设备 / 设置           | `a`，offline-icons 与 remote-dialog 零连接 | device-row / task-actions / ui-pairwise / settings-scopes / desktop-settings-authority / offline-icons / remote-dialog / settings-ui-polish(MP-UI-05-remote) |
-| 3 Provider / 模型            | `a`                                        | project-entry / provisioning-gui / model-candidates / connectivity / model-switch / queue-selection / provisioning-ready                                     |
-| 4 任务 / 会话                | `a`                                        | compact-goal / subagent / task-control / task-faults / task-lifecycle / settings-overlay                                                                     |
-| 5 远端开发                   | `a`                                        | attachments / media-preview / file-local-actions / remote-hooks / terminal                                                                                   |
-| 6 安装 / 升级 / 连接生命周期 | `a`（install-faults 用 `a`+`c`）           | daemon-detached / install-faults / server-update / uninstall / cancel-retry / cold-reconnect / server-fault / download-proxy                                 |
-| 7 既有 P0                    | `a`，development-p0 需带 git 的容器        | ssh-remote-p0 / connection-p0 / development-p0                                                                                                               |
-| 8 RDUX 与 scope              | `a`                                        | rdux-13 / rdux-14 / project-read-failed / project-conversation-scope / share-ssh-artifact                                                                    |
-| 9 远程 workspace 插件        | identity 用 `a`+`c`，sync 用 `a`           | WPL-010 / WPL-011                                                                                                                                            |
-| 10 Bot 远程 workspace        | 无容器                                     | BOT-E2E-RW-01（synthetic fixture 契约）                                                                                                                      |
-| 11 移动端                    | `a` + chromium + relay                     | mobile / mobile-permission                                                                                                                                   |
-| 12 soak                      | `a`                                        | soak-reconnect(10 轮) / soak-dual(10 分钟)                                                                                                                   |
-| 13 受限环境安装              | `d` / `e` / `f` / `g`                      | noexec-tmp / no-tar / no-forwarding / old-glibc（注入返回 `glibc 2.17` 的 getconf）                                                                          |
-| 14 live                      | `a`，docker transport 用 `dt`              | live-zapi / live-bigmodel-team / docker-transport                                                                                                            |
+| 组                           | 档位                                       | 说明                                                                                                                                                              |
+| ---------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 结构与恢复                 | `a`（entry-attribution 用 `a`+`c`）        | boundary / ack-loss / mixed / recovery / renderer / shared-waiters / source-lines / stale-gen / transport-loss                                                    |
+| 2 UI / 设备 / 设置           | `a`，offline-icons 与 remote-dialog 零连接 | device-row / task-actions / ui-pairwise / settings-scopes / desktop-settings-authority / offline-icons / remote-dialog / settings-ui-polish(MP-UI-05-remote)      |
+| 3 Provider / 模型            | `a`                                        | project-entry / provisioning-gui / model-candidates / connectivity / model-switch / queue-selection / provisioning-ready                                          |
+| 4 任务 / 会话                | `a`                                        | compact-goal / subagent / task-control / task-faults / task-lifecycle / settings-overlay                                                                          |
+| 5 远端开发                   | `a`                                        | attachments / media-preview / file-local-actions / remote-hooks / terminal                                                                                        |
+| 6 安装 / 升级 / 连接生命周期 | `a`（install-faults 用 `a`+`c`）           | daemon-detached / install-faults / server-update / uninstall / cancel-retry / cold-reconnect / server-fault / download-proxy                                      |
+| 7 既有 P0                    | `a`，development-p0 需带 git 的容器        | ssh-remote-p0 / connection-p0 / development-p0                                                                                                                    |
+| 8 RDUX 与 scope              | `a`                                        | rdux-13 / rdux-14 / project-read-failed / project-conversation-scope / share-ssh-artifact                                                                         |
+| 9 远程 workspace 插件        | identity 用 `a`+`c`，sync 用 `a`           | WPL-010 / WPL-011                                                                                                                                                 |
+| 10 Bot 远程 workspace        | 无容器                                     | BOT-E2E-RW-01（synthetic fixture 契约）                                                                                                                           |
+| 11 移动端                    | `a` + chromium + relay                     | mobile / mobile-permission                                                                                                                                        |
+| 12 soak                      | `a`                                        | soak-reconnect(10 轮) / soak-dual(10 分钟)                                                                                                                        |
+| 13 受限环境安装              | `d` / `e` / `f` / `g`                      | noexec-tmp / no-tar / no-forwarding / old-glibc（注入返回 `glibc 2.17` 的 getconf）；old-glibc-runtime 需真实 glibc 2.27 镜像，未入队，见 harness README 本机运行 |
+| 14 live                      | `a`，docker transport 用 `dt`              | live-zapi / live-bigmodel-team / docker-transport                                                                                                                 |
 
 队列覆盖：队列手工维护，没有自动门禁核对它与远程 spec 是否一致；新增远程 case 时须同步入队。现有档位造不出 fixture 的用例登记在 `packages/desktop/scripts/r3-remote-spec-inventory.mjs` 的 `DEDICATED_FIXTURE_SPECS`，必须显式报告阻塞，不得从计划分母消失。RDUX-16 已在 case 内真实首装，再通过本 run 的 staged archive 构造同版本异 SHA 更新；不再要求人工预装。更新与安装故障解除本 run 的硬链接后再写，公共构建包保持只读。
 
@@ -415,9 +415,13 @@ ZCODE_DEV_REMOTE_ASSET_USE_CDN / _CDN_BASE_URL / _CACHE_DIR
                                                      仅 local-download-proxy；Electron env 由
                                                      chromedriver 在 worker 前创建，case 内部
                                                      export 太晚，只能由编排注入
-ZCODE_E2E_MOCHA_GREP                                 只跑 spec 内某个用例（settings-ui-polish
-                                                     只有 MP-UI-05-remote 是远程用例）
+ZCODE_E2E_MOCHA_GREP                                 只跑 spec 内指定用例，如无目标任务只跑
+                                                     settings-ui-polish 的本地 MP-UI-05
 ```
+
+设置回归按目标拆开：`settingsuipolish` 定向运行 `settings-ui-polish-ssh.test.ts`，
+`settings-safeguards` 保留 RDUX-05 真实 SSH 操作；本地提示截图由 `settings-notice`
+在无 SSH 目标的环境独立运行。两条 SSH 任务不依赖 Mocha grep。
 
 ## live-team 真实账号验证边界（2026-09-15 修复）
 
@@ -445,8 +449,9 @@ preset 保持原行为。live-team 与其他 spec 混跑时，配置阶段明确
 ```
 
 远端凭据探针不要求全局 `node`，枚举 JSON 键名时必须保留键名内部的冒号；
-模型选择和远端请求断言使用当前规范 ID `GLM-5.3-Flash`。测试仍需证明 BigModel OAuth
-和 Team key 已同步、真实响应包含 `TEAM1`、replay 请求计数不变，以及远端请求的
+模型选择和远端请求断言使用当前规范 ID `GLM-5.3-Flash`。登录夹具只导入 BigModel OAuth/JWT 和
+Team 连接选择，不读取或复制旧的 Team API Key 缓存；旧缓存可能使用不同的安全存储格式，
+不能让它阻断有效 OAuth 登录。测试仍需证明 OAuth 已同步、远端自行换证、真实响应包含 `TEAM1`、replay 请求计数不变，以及远端请求的
 provider/model/endpoint 正确。业务 401 退出、登录弹窗、SSH 协议和桌面/手机流语义不变。
 请求超时也要在目标容器清理前保存远端模型网络阶段；只收集模型身份、地址和状态等白名单字段，
 不保存凭据、请求头和 prompt 到用例 facts。

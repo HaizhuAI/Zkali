@@ -61,6 +61,7 @@ import { createRequestVerificationEmptyStreamError } from "./request-security-ed
 import {
   calculateRetryDelay,
   logRetryDelayDecision,
+  retryDelayWithAdmissionCooldown,
   sleep,
   TerminalStreamChunkError,
   toAdapterError,
@@ -93,7 +94,10 @@ import {
   providerRequestIdFromHeaders,
   readModelFailureErrorPhase,
 } from "./runner-telemetry.js";
-import { repairReasoningHistoryAfterSignatureRejection } from "./reasoning-history-normalization.js";
+import {
+  repairReasoningHistoryAfterRejection,
+  thinkingSignatureRejectionEvidence,
+} from "./reasoning-history-normalization.js";
 
 type StreamFailurePhase = "request_setup" | "response_body";
 
@@ -127,6 +131,11 @@ export async function* runStreamText(input: {
   const isDev = isDevelopmentModelIOEnv(input.env);
   let requestMessages = input.request.messages;
   let signatureRepairAttempted = false;
+  // 修复后的重试成功时，在 finish 上告诉 core 记 signedReasoningReset，之后的请求不再发被拒的块。
+  const withRepairMarker = (event: ModelStreamEvent): ModelStreamEvent =>
+    signatureRepairAttempted && event.type === "finish"
+      ? { ...event, signedReasoningReset: true }
+      : event;
   const authRetry = new AccountRequestRetry(input.request, input.resolved, input.logger);
   let emptyCompletionRetryCount = 0;
   // 不认识的业务码在本次请求里连续出现的次数：workflow 策略表据此停下，见 workflow-model-failure-policy.ts。
@@ -198,27 +207,33 @@ export async function* runStreamText(input: {
     let streamStallCount = 0;
     let streamOutputCommitted = false;
     const repairThinkingSignatureRejection = (error: unknown): boolean => {
-      if (signatureRepairAttempted || resolved.providerKind !== "anthropic") {
-        return false;
-      }
-      const repairedMessages = repairReasoningHistoryAfterSignatureRejection(
+      if (signatureRepairAttempted) return false;
+      const repairedMessages = repairReasoningHistoryAfterRejection(
         requestMessages,
         error,
+        resolved.providerKind,
       );
       if (!repairedMessages) return false;
 
-      // 签名只对生成它的 thinking block 有效。流尚未提交输出时，只替换
+      // 签名和加密推理只对生成它的上游有效。流尚未提交输出时，只替换
       // 本次请求副本，并给一次不占普通 retry 预算且拥有新 requestId 的物理请求机会；
       // 不能把清理结果写回 canonical history。
       signatureRepairAttempted = true;
       requestMessages = repairedMessages;
-      input.logger?.warn("Retrying model stream after thinking signature rejection", {
+      input.logger?.warn("Retrying model stream after reasoning rejection", {
         attempt,
         event: "model.reasoning_signature_repair.retry",
         maxAttempts: input.retry.maxAttempts + 1 + authRetry.extraAttempts,
         nextAttempt: attempt + 1,
+        // 同一事件也用于 Responses 加密推理被拒，记下类型以区分。
+        providerKind: resolved.providerKind,
         requestId: statusContext.requestId,
         status: "waiting",
+        // 记下 provider 原文和 prefix 不一致响应头：写明哪一块、因为什么被拒，排查前缀变化时用。
+        ...thinkingSignatureRejectionEvidence(
+          error,
+          sanitizeModelNetworkHeaders(getResponseHeaders(unwrapRetryError(error))),
+        ),
       });
       return true;
     };
@@ -422,7 +437,7 @@ export async function* runStreamText(input: {
             emittedRetryBoundaryEvent = true;
             for (const pendingEvent of pendingRetrySafeEvents.splice(0)) {
               emittedEvent = true;
-              yield pendingEvent;
+              yield withRepairMarker(pendingEvent);
             }
             // 无 raw message-block provenance 的 provider 可能直接给完整 tool-call。
             // 先把 inferred block stop 交给隐藏 collector，再传播校验错误，避免 HTTP 重放。
@@ -487,7 +502,7 @@ export async function* runStreamText(input: {
             const observation = observeVisibleStreamEvent(visibleEvent, Date.now() - startedAt);
             await publishVisibleMilestones(observation);
             streamOutputCommitted = streamOutputCommitted || observation.outputCommitted;
-            yield visibleEvent;
+            yield withRepairMarker(visibleEvent);
           }
         }
       }
@@ -514,7 +529,7 @@ export async function* runStreamText(input: {
           const observation = observeVisibleStreamEvent(visibleEvent, Date.now() - startedAt);
           await publishVisibleMilestones(observation);
           streamOutputCommitted = streamOutputCommitted || observation.outputCommitted;
-          yield visibleEvent;
+          yield withRepairMarker(visibleEvent);
         }
       }
 
@@ -523,7 +538,7 @@ export async function* runStreamText(input: {
         const observation = observeVisibleStreamEvent(pendingEvent, Date.now() - startedAt);
         await publishVisibleMilestones(observation);
         streamOutputCommitted = streamOutputCommitted || observation.outputCommitted;
-        yield pendingEvent;
+        yield withRepairMarker(pendingEvent);
       }
 
       if (!emittedError) {
@@ -632,10 +647,12 @@ export async function* runStreamText(input: {
             emptyCompletionRetryCount += 1;
             await scheduleEmptyCompletionRetry({
               abortSignal: input.request.abortSignal,
+              admission,
               attempt,
               completedAt,
               errorPhase: "stream",
               logger: input.logger,
+              modelRequestAdmission: input.request.modelRequestAdmission,
               requestHeaders,
               requestStatusSink: input.request.statusSink,
               responseHeaders,
@@ -904,12 +921,20 @@ export async function* runStreamText(input: {
         });
       }
 
-      const delayMs =
+      // off-peak 排队有自己的服务端协议，等待不叠加冷却；普通重试取 max(本地退避, 准入端口的剩余冷却)。
+      const { admissionCooldownMs, backoffMs, delayMs } =
         offPeak?.kind === "queued"
-          ? offPeak.delayMs
-          : calculateRetryDelay(input.retry, retryBudgetAttempt, failure.retryAfterMs);
+          ? { admissionCooldownMs: 0, backoffMs: offPeak.delayMs, delayMs: offPeak.delayMs }
+          : retryDelayWithAdmissionCooldown({
+              admission: input.request.modelRequestAdmission,
+              backoffMs: calculateRetryDelay(input.retry, retryBudgetAttempt, failure.retryAfterMs),
+              jitter: input.retry.jitter,
+              statusContext,
+            });
       logRetryDelayDecision({
+        admissionCooldownMs,
         attempt,
+        backoffMs,
         canRetry: failureDecision.canRetry,
         delayMs,
         failure,
@@ -1425,12 +1450,25 @@ async function handleStreamErrorEvent(
     });
   }
 
-  const delayMs =
+  // off-peak 排队有自己的服务端协议，等待不叠加冷却；普通重试取 max(本地退避, 准入端口的剩余冷却)。
+  // BigModel 的 1302 常以 SSE error chunk 到达，走的就是这里。
+  const { admissionCooldownMs, backoffMs, delayMs } =
     offPeak?.kind === "queued"
-      ? offPeak.delayMs
-      : calculateRetryDelay(input.input.retry, input.retryBudgetAttempt, failure.retryAfterMs);
+      ? { admissionCooldownMs: 0, backoffMs: offPeak.delayMs, delayMs: offPeak.delayMs }
+      : retryDelayWithAdmissionCooldown({
+          admission: input.input.request.modelRequestAdmission,
+          backoffMs: calculateRetryDelay(
+            input.input.retry,
+            input.retryBudgetAttempt,
+            failure.retryAfterMs,
+          ),
+          jitter: input.input.retry.jitter,
+          statusContext,
+        });
   logRetryDelayDecision({
+    admissionCooldownMs,
     attempt: input.attempt,
+    backoffMs,
     canRetry: failureDecision.canRetry,
     delayMs,
     failure,

@@ -16,6 +16,7 @@ import {
 import type { ModelMessageContent, ModelMessageContentBlock } from "@zcode/contracts";
 import type { ModelInputMessage, RuntimeMessageEntry } from "../../agent/message-history.js";
 import {
+  OUTPUT_TOKEN_CONTINUATION_SOURCE,
   cloneModelInputMessage,
   toModelToolCall,
   cloneModelMessageContent,
@@ -23,6 +24,7 @@ import {
   isRuntimeAttachmentEntry,
   systemReminderAttachmentEntry,
 } from "../../agent/message-history.js";
+import { isToolSearchAnnouncementMetadata } from "../../tool/search/history.js";
 import {
   getSystemReminderDescriptor,
   isMidConversationSystemSource,
@@ -34,6 +36,12 @@ export interface ProviderRequestMessageProjectionResult {
   messages: ModelInputMessage[];
   /** 仅用于内部归属；runtime metadata 不会进入 `messages`。 */
   sourceEntries: Array<RuntimeMessageEntry | undefined>;
+  /**
+   * 仅用于 context 组成统计：与 `messages` 同索引，列出组成该消息的全部来源条目（含 attachment）。
+   * `sourceEntries` 只给一条代表条目，且纯 attachment 消息没有代表条目；MCS 合并、并入 tool result
+   * 的提醒只能从这里归因。派生消息（Tool loaded.）为空数组。
+   */
+  originEntries: Array<readonly RuntimeMessageEntry[]>;
   diagnostics: {
     bubbledAttachmentEntryCount: number;
     latestRealUserMessageIndex?: number;
@@ -46,6 +54,8 @@ export interface ProviderRequestMessageProjectionResult {
 // MCS/provider projection 保持 provider-neutral，避免影响 OpenAI-compatible 请求形态。
 const ENABLE_MCS_ADJACENT_USER_MERGE = false;
 const TOOL_SEARCH_LOADED_MESSAGE = "Tool loaded.";
+// adapter 给空回复补的占位文字；模型也可能照着历史回出这段文字，按空白处理。
+const EMPTY_ASSISTANT_CONTENT_PLACEHOLDER = "(no content)";
 
 // State changes must keep their causal position relative to older target continuations.
 const NON_BUBBLING_ATTACHMENT_SOURCES: ReadonlySet<SystemReminderSource> = new Set([
@@ -59,12 +69,29 @@ export function buildProviderRequestMessages(input: {
   useMidConversationSystem?: boolean;
   /** 由模型请求能力决定；不传时不折叠、不补换行（OpenAI 兼容协议、估算与 microcompact）。 */
   foldRemindersIntoToolResults?: boolean;
+  /** 由模型请求能力决定；不传时保留没有可见内容的回复（OpenAI 兼容协议、估算与 microcompact）。 */
+  dropReasoningOnlyOrBlankAssistants?: boolean;
   loadedToolCallIds?: ReadonlySet<string>;
 }): ProviderRequestMessageProjectionResult {
   const useMidConversationSystem = input.useMidConversationSystem !== false;
   const origins = new ProviderEntryOrigins();
+  // 删除是投影的第一步：冒泡、MCS 落点、提醒并入和补换行都按这条回复不存在处理。
+  const presentEntries =
+    input.dropReasoningOnlyOrBlankAssistants === true
+      ? input.entries.filter((entry) => !isReasoningOnlyOrBlankAssistant(entry))
+      : input.entries;
   const reorderResult = reorderAttachmentLikeEntries(
-    projectIncomingMessageEntries(input.entries, origins),
+    projectIncomingMessageEntries(
+      presentEntries.filter(
+        (entry) =>
+          !(
+            entry.kind === "attachment" &&
+            isToolSearchAnnouncementMetadata(entry.metadata) &&
+            !entry.content
+          ),
+      ),
+      origins,
+    ),
   );
   const midSystemProjection = useMidConversationSystem
     ? projectMidConversationSystemEntries(reorderResult.entries, origins)
@@ -106,9 +133,11 @@ export function buildProviderRequestMessages(input: {
   const sourceEntries: Array<RuntimeMessageEntry | undefined> = Array.from({
     length: messages.length,
   });
+  const originEntries: RuntimeMessageEntry[][] = Array.from({ length: messages.length }, () => []);
   for (const [projectedIndex, mergedIndex] of mergeResult.indexMap.entries()) {
-    if (sourceEntries[mergedIndex] !== undefined) continue;
     const entry = projectedEntries[projectedIndex];
+    if (entry) originEntries[mergedIndex]!.push(...origins.get(entry));
+    if (sourceEntries[mergedIndex] !== undefined) continue;
     if (entry) sourceEntries[mergedIndex] = origins.representative(entry);
   }
   const mappedLatestRealUserMessageIndex =
@@ -129,6 +158,7 @@ export function buildProviderRequestMessages(input: {
   return {
     messages,
     sourceEntries,
+    originEntries,
     diagnostics: {
       bubbledAttachmentEntryCount: reorderResult.bubbledAttachmentEntryCount,
       // 新标记能证明“没有真实用户”；省略索引会让媒体预算按 user role 重新猜来源。
@@ -174,6 +204,26 @@ function representativeEntries(
 
 function identityMergeResult(messages: ModelInputMessage[]): MessageMergeResult {
   return { messages, indexMap: messages.map((_, index) => index) };
+}
+
+// 没有工具调用、没有可见内容（每个块都是思考或空白文字）的回复：在思考中被打断（send now、停止）、
+// 思考后流失败、只回了思考和空白。
+// 修复原因：删除原在 adapter 的请求归一化里，晚于这里的 MCS 落点。MCS system 按「后面是 assistant」
+// 放在这条回复前面，回复随后被删，请求变成 system 直接接 user，provider 返回 400，之后会话的每个请求都失败。
+// 现在删除只在这里做，并且是投影的第一步。字符串和空数组不删：完全没有输出的回复存成空字符串，带 usage，
+// 留作估算锚点；空数组的 every 恒为真，单独排除（见 docs/design/v2/model/assistant-block-order.md「没有可见内容的回复」）。
+function isReasoningOnlyOrBlankAssistant(entry: RuntimeMessageEntry): boolean {
+  if (isRuntimeAttachmentEntry(entry)) return false;
+  const { role, content, toolCalls } = entry.message;
+  if (role !== "assistant" || (toolCalls?.length ?? 0) > 0) return false;
+  if (typeof content === "string" || content.length === 0) return false;
+  return content.every(
+    (block) =>
+      block.type === "reasoning" ||
+      (block.type === "text" &&
+        (block.text.trim().length === 0 ||
+          block.text.trim() === EMPTY_ASSISTANT_CONTENT_PLACEHOLDER)),
+  );
 }
 
 interface AttachmentReorderResult {
@@ -297,7 +347,7 @@ function renderProjectedEntryToModelMessage(
   return message;
 }
 
-// 相邻 user 消息合并规则：user 输入消息前紧挨的 user 文本以换行结尾；
+// 相邻 user 消息合并规则：user 输入消息、compaction 补回的文件正文和 Continue 提示前紧挨的 user 文本以换行结尾；
 // attachment 并入前一条时不补。按位置补换行，与前一块的来源无关；tool result 不是文本，不补。
 // 已以换行结尾时不再补，保持投影对自身输出幂等。
 function separateUserTextBeforeUserInput(
@@ -307,11 +357,29 @@ function separateUserTextBeforeUserInput(
   for (let index = 1; index < messages.length; index++) {
     const previous = messages[index - 1]!;
     const entry = entries[index];
-    if (!entry || !isUserInputMessage(entry) || !startsWithText(messages[index]!.content)) continue;
+    if (!entry || !startsWithText(messages[index]!.content)) continue;
+    if (
+      !isUserInputMessage(entry) &&
+      !isOutputTokenContinuation(entry) &&
+      !isCompactFileRestoreEntry(entry)
+    ) {
+      continue;
+    }
     if (previous.role !== "user" || isToolResultUserMessage(previous)) continue;
     messages[index - 1] = { ...previous, content: appendNewlineToLastText(previous.content) };
   }
   return messages;
+}
+
+// 输出达到上限后追加的 Continue 提示不算用户输入，但它也会直接接在 user 文本后面：前一条回复只有思考、
+// 被删除；零输出截断没有留下 assistant；提醒冒泡到它前面。
+// 修复原因：删除挪到投影第一步后，这里原来不给它补换行，两段文字合成一条消息时连在一起
+// （「原文Output token limit hit…」）；删除原在 adapter 时，它合并 user 会补换行。
+// Continue 持久化后按 metadata.source 识别，live 与冷恢复同一判据。
+function isOutputTokenContinuation(entry: ProjectedRuntimeMessageEntry): boolean {
+  return (
+    !isRuntimeAttachmentEntry(entry) && entry.metadata?.source === OUTPUT_TOKEN_CONTINUATION_SOURCE
+  );
 }
 
 function startsWithText(content: ModelMessageContent): boolean {
@@ -367,6 +435,7 @@ function foldRemindersIntoToolResults(
 
 // 中途消息按 attachment 处理，同样并入；带媒体的中途消息不并入。
 // MCS 降级块不经过折叠；legacy_synthetic 还承载旧后台通知与 compact 摘要，同样不折叠。
+// compaction 补回的文件正文按普通 user 消息合并，不并入保留段末尾的 tool result。
 function isFoldableReminder(
   entry: ProjectedRuntimeMessageEntry,
   message: ModelInputMessage,
@@ -375,9 +444,18 @@ function isFoldableReminder(
   if (typeof message.content !== "string" && message.content.some((b) => b.type !== "text")) {
     return false;
   }
+  if (isCompactFileRestoreEntry(entry)) return false;
   if (isRuntimeAttachmentEntry(entry)) return true;
   if (isPresentedInput(entry)) return false;
   return isReminderMessage(entry);
+}
+
+// 修复原因：补回正文曾按普通附件投影，auto/reactive 的保留段以 tool result 结尾时会并入那个 tool result，
+// 两条正文之间也不换行；读文件的补回应是 tool result 之后的独立 user 文本，与普通 user 消息的合并方式相同。
+function isCompactFileRestoreEntry(entry: ProjectedRuntimeMessageEntry): boolean {
+  return (
+    isRuntimeAttachmentEntry(entry) && entry.metadata.source === "resume_referenced_session_context"
+  );
 }
 
 function foldIntoToolResultContent(

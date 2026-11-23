@@ -3,6 +3,9 @@ import {
   conversationShareArtifactDescriptorSchema,
   conversationShareArtifactUploadDataSchema,
   conversationShareCapabilitiesWireSchema,
+  conversationShareManagedItemSchema,
+  conversationShareManagedListSchema,
+  CONVERSATION_SHARE_MANAGE_PAGE_SIZE,
   narrowConversationShareCapabilities,
   conversationShareConfirmDataSchema,
   conversationShareConfirmRequestSchema,
@@ -26,6 +29,8 @@ import {
   type ConversationShareConfirmRequest,
   type ConversationShareContinuation,
   type ConversationShareContinuationRequest,
+  type ConversationShareManagedItem,
+  type ConversationShareManagedList,
   type ConversationSharePreparation,
   type ConversationSharePreparationRequest,
   type ConversationSharePreview,
@@ -167,6 +172,30 @@ function parseRetryAfterMs(value: string | null, now = Date.now()): number | und
   if (retryAt === undefined) return undefined;
   const delayMs = retryAt - now;
   return delayMs > 0 ? delayMs : undefined;
+}
+
+/** 优先合法的 Retry-After-Ms，否则解析 Retry-After（秒数或 HTTP-date）。 */
+function readRetryAfterMs(headers: Headers): number | undefined {
+  const millisecondHeader = headers.get("retry-after-ms")?.trim();
+  const milliseconds =
+    millisecondHeader && /^\d+$/u.test(millisecondHeader) ? Number(millisecondHeader) : NaN;
+  return Number.isSafeInteger(milliseconds) && milliseconds > 0
+    ? milliseconds
+    : parseRetryAfterMs(headers.get("retry-after"));
+}
+
+/** 限流提示里展示的最长等待；更长的值不展示具体秒数，沿用“请稍后再试”。 */
+const MAX_DISPLAYED_RATE_LIMIT_RETRY_AFTER_MS = 10 * 60_000;
+
+/**
+ * 修复原因：此前只为 3215 解析 Retry-After，429 / 3002 的错误永远没有 retryAfterMs，
+ * UI 的“请 N 秒后重试”分支不可达。限流等待只用于提示，超过上限的值丢弃，不截断成错误秒数。
+ */
+function readRateLimitRetryAfterMs(headers: Headers): number | undefined {
+  const retryAfterMs = readRetryAfterMs(headers);
+  return retryAfterMs !== undefined && retryAfterMs <= MAX_DISPLAYED_RATE_LIMIT_RETRY_AFTER_MS
+    ? retryAfterMs
+    : undefined;
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -379,6 +408,46 @@ export class ConversationShareHttpClient {
     return decoded;
   }
 
+  /** 当前登录账号未过期的 active/revoked 分享；cursor 原样回传服务端的 next_cursor。 */
+  listManagedShares(cursor?: string): Promise<ConversationShareManagedList> {
+    const query = new URLSearchParams({ limit: String(CONVERSATION_SHARE_MANAGE_PAGE_SIZE) });
+    if (cursor) query.set("cursor", cursor);
+    return this.requestData(
+      `/shares/mine?${query.toString()}`,
+      { method: "GET" },
+      conversationShareManagedListSchema,
+      "required",
+    );
+  }
+
+  revokeManagedShare(shareId: string): Promise<ConversationShareManagedItem> {
+    return this.requestData(
+      `/shares/mine/${encodeURIComponent(shareId)}/revoke`,
+      { method: "POST" },
+      conversationShareManagedItemSchema,
+      "required",
+    );
+  }
+
+  restoreManagedShare(shareId: string): Promise<ConversationShareManagedItem> {
+    return this.requestData(
+      `/shares/mine/${encodeURIComponent(shareId)}/restore`,
+      { method: "POST" },
+      conversationShareManagedItemSchema,
+      "required",
+    );
+  }
+
+  async deleteManagedShare(shareId: string): Promise<void> {
+    // DELETE 成功时 data 为 null；只校验信封本身。
+    await this.requestData(
+      `/shares/mine/${encodeURIComponent(shareId)}`,
+      { method: "DELETE" },
+      z.unknown(),
+      "required",
+    );
+  }
+
   private jsonRequest(method: "POST", body: unknown): ApiRequestInit {
     return {
       method,
@@ -477,15 +546,12 @@ export class ConversationShareHttpClient {
         // "HTTP 4xx"）。保留原始数字码，未知码按 HTTP 分类以区分服务故障。
         const { code, data: rejection, logid } = parsedError.data;
         const kind = classifyConversationShareError(response.status, code);
-        const millisecondHeader = response.headers.get("retry-after-ms")?.trim();
-        const milliseconds =
-          millisecondHeader && /^\d+$/u.test(millisecondHeader) ? Number(millisecondHeader) : NaN;
         const retryAfterMs =
           code === 3215
-            ? Number.isSafeInteger(milliseconds) && milliseconds > 0
-              ? milliseconds
-              : parseRetryAfterMs(response.headers.get("retry-after"))
-            : undefined;
+            ? readRetryAfterMs(response.headers)
+            : kind === "rate_limited"
+              ? readRateLimitRetryAfterMs(response.headers)
+              : undefined;
         const requestId = responseRequestId ?? logid;
         log.warn(undefined, "conversation share API request rejected", {
           path,
@@ -513,12 +579,17 @@ export class ConversationShareHttpClient {
         status: response.status,
         requestId: responseRequestId,
       });
+      const kind = classifyConversationShareError(response.status);
+      // 网关返回的非 JSON 429 同样可能带 Retry-After，不能只在业务信封分支解析。
+      const retryAfterMs =
+        kind === "rate_limited" ? readRateLimitRetryAfterMs(response.headers) : undefined;
       throw new ConversationShareClientError({
         clientRequestId,
-        kind: classifyConversationShareError(response.status),
+        kind,
         message: `Conversation share API failed with HTTP ${response.status}`,
         status: response.status,
         ...(responseRequestId === undefined ? {} : { requestId: responseRequestId }),
+        ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
       });
     }
 

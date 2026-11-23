@@ -99,6 +99,16 @@ const browserUseRequiredRuntimePaths = [
 ];
 // 文档插件（documents / pdf / presentations / spreadsheets）的查看面板由共享包
 // @zcode/office-runtime 构建进各插件 dist/；插件包自身没有 TypeScript 源码。
+const officeInvocationPaths = [
+  "scripts/zcode_libreoffice.py",
+  "scripts/libreoffice-profile/user/registrymodifications.xcu",
+  "scripts/libreoffice-profile/user/basic/script.xlc",
+  "scripts/libreoffice-profile/user/basic/dialog.xlc",
+  "scripts/libreoffice-profile/user/basic/Standard/script.xlb",
+  "scripts/libreoffice-profile/user/basic/Standard/dialog.xlb",
+  "scripts/libreoffice-profile/user/basic/Standard/ZCode.xba",
+];
+
 const officeViewerRuntimePaths = ["dist/server.mjs", "dist/ui/assets.json", "dist/ui/panel.html"];
 const officialPluginPackages = [
   {
@@ -115,9 +125,9 @@ const officialPluginPackages = [
     requiresRuntime: true,
     requiredRuntimePaths: officeViewerRuntimePaths,
     requiredSeedPaths: [
-      "agents/visual-judge.md",
       "skills/docx/SKILL.md",
       "skills/docx-viewer/SKILL.md",
+      ...officeInvocationPaths,
     ],
     runtimeBuildScript: "../office-runtime/scripts/build.mjs",
     stagedPath: "packages/documents-plugin",
@@ -135,9 +145,9 @@ const officialPluginPackages = [
     requiresRuntime: true,
     requiredRuntimePaths: officeViewerRuntimePaths,
     requiredSeedPaths: [
-      "agents/visual-judge.md",
       "skills/pdf/SKILL.md",
       "skills/pdf-viewer/SKILL.md",
+      ...officeInvocationPaths,
     ],
     runtimeBuildScript: "../office-runtime/scripts/build.mjs",
     stagedPath: "packages/pdf-plugin",
@@ -148,9 +158,9 @@ const officialPluginPackages = [
     requiresRuntime: true,
     requiredRuntimePaths: officeViewerRuntimePaths,
     requiredSeedPaths: [
-      "agents/visual-judge.md",
       "skills/pptx/SKILL.md",
       "skills/pptx-viewer/SKILL.md",
+      ...officeInvocationPaths,
     ],
     runtimeBuildScript: "../office-runtime/scripts/build.mjs",
     stagedPath: "packages/presentations-plugin",
@@ -161,9 +171,9 @@ const officialPluginPackages = [
     requiresRuntime: true,
     requiredRuntimePaths: officeViewerRuntimePaths,
     requiredSeedPaths: [
-      "agents/visual-judge.md",
       "skills/xlsx/SKILL.md",
       "skills/xlsx-viewer/SKILL.md",
+      ...officeInvocationPaths,
     ],
     runtimeBuildScript: "../office-runtime/scripts/build.mjs",
     stagedPath: "packages/spreadsheets-plugin",
@@ -285,16 +295,60 @@ const officialPluginPackages = [
     requiredSeedPaths: [
       ".zcode-plugin/plugin.json",
       "agents/zkali-recon.md",
+      "agents/zkali-reverse.md",
+      "agents/zkali-pwn.md",
+      "agents/zkali-web.md",
+      "agents/zkali-ctf.md",
+      "agents/zkali-audit.md",
+      "agents/zkali-red.md",
+      "agents/zkali-blue.md",
       "agents/zkali-proxy.md",
       "skills/zkali-kernel/SKILL.md",
+      "skills/zkali-bootscope/SKILL.md",
       "commands/recon.md",
+      "commands/bootscope.md",
       "hooks/hooks.json",
       "scripts/session-init.mjs",
       "scripts/cmd-journal.mjs",
       "scripts/zkali-toolbox.mjs",
+      "scripts/zkali-bootscope.mjs",
       "scripts/zkali-opencodezen-pool.mjs",
+      "scripts/zkali-allin-gw.mjs",
     ],
     stagedPath: "packages/zkali-plugin",
+  },
+  {
+    // design（默认启用内容型插件）：Electron 生产包靠这里 stage 的目录做首启 seed，漏掉它
+    // 生产桌面包就没有设计技能。必需文件与 official-plugin-definitions.ts 的 requiredSeedPaths 一致。
+    packageName: "@zcode/design-plugin",
+    relativePath: "apps/zcode-cli/packages/design-plugin",
+    requiresRuntime: false,
+    requiredSeedPaths: [
+      "skills/design/SKILL.md",
+      "skills/design/references/app.md",
+      "skills/design/references/catalog.md",
+      "skills/design/references/check.md",
+      "skills/design/references/create.md",
+      "skills/design/references/deck.md",
+      "skills/design/references/design-system.md",
+      "skills/design/references/image.md",
+      "skills/design/references/interact.md",
+      "skills/design/references/motion.md",
+      "skills/design/references/page.md",
+      "skills/design/references/redesign.md",
+      "skills/design/scripts/adapt-canvas.mjs",
+      "skills/design/scripts/audit-page.js",
+      "skills/design/scripts/audit.mjs",
+      "skills/design/scripts/design-lint.mjs",
+      "skills/design/scripts/design-tokens.mjs",
+      "skills/design/scripts/import-design-system.mjs",
+      "skills/design/scripts/probe.js",
+      "hooks/hooks.json",
+      "hooks/run-hook.cmd",
+      "hooks/design-rules",
+    ],
+    requiredRuntimePaths: [],
+    stagedPath: "packages/design-plugin",
   },
   // superpowers 已从内置插件下线，改走 UI 推荐区按需安装；这里不再 stage 它的资源。
 ];
@@ -408,10 +462,10 @@ function assertOfficialPluginRuntime(plugin) {
   }
 }
 
-function stageBundle() {
+async function stageBundle() {
   // 实现已抽到 stage-agent-bundle.mjs：dev 链（scripts/build-desktop-agent-cli.mjs）
   // 必须用同一份，否则 dev 会继续跑上一次打包留下的陈旧 agent。
-  stageAgentBundle({ repoRoot, platformKey });
+  await stageAgentBundle({ repoRoot, platformKey });
 }
 
 function stageOfficialPlugins() {
@@ -535,7 +589,7 @@ function stageKoffiForCuaPlugin() {
 // 必须先构建 CLI 依赖，再构建官方插件；开发机残留的 dist 曾掩盖这个顺序问题。
 buildCliBundle();
 buildOfficialPluginRuntimes();
-stageBundle();
+await stageBundle();
 stageOfficialPlugins();
 stageBundledSkillPack();
 await stageBundledNpmRuntime();

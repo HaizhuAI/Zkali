@@ -16,6 +16,7 @@ const EXPECTED_SOURCES = [
   "environment",
   "model",
   "output_style_instructions",
+  "language",
   "date",
   "skills_listing",
   "gen_ui_state",
@@ -23,11 +24,14 @@ const EXPECTED_SOURCES = [
   "agent_listing_delta",
   "todo_reminder",
   "silent_turn_reminder",
+  "total_tokens_reminder",
   "read_truncation_notice",
   "tool_hook_context",
+  "hook_context",
   "task_status",
   "tool_result_warning",
   "resume_referenced_session_context",
+  "compact_file_reference",
   "plan_file_reference",
   "resume_goal_state",
   "goal_state_change",
@@ -39,9 +43,7 @@ const EXPECTED_SOURCES = [
   "conversation_fork",
   "selection_side_chat",
   "queued_system_notification",
-  "shell_environment_change",
   "incoming_message",
-  "hook_context",
   "memory_update",
   "relevant_memory",
   "runtime_mode",
@@ -70,6 +72,7 @@ describe("system reminder source descriptors", () => {
       "environment",
       "model",
       "output_style_instructions",
+      "language",
       "date",
       "skills_listing",
       "gen_ui_state",
@@ -77,11 +80,14 @@ describe("system reminder source descriptors", () => {
       "agent_listing_delta",
       "todo_reminder",
       "silent_turn_reminder",
+      "total_tokens_reminder",
       "read_truncation_notice",
       "tool_hook_context",
+      "hook_context",
       "task_status",
       "tool_result_warning",
       "resume_referenced_session_context",
+      "compact_file_reference",
       "plan_file_reference",
       "resume_goal_state",
       "goal_state_change",
@@ -93,11 +99,9 @@ describe("system reminder source descriptors", () => {
       "conversation_fork",
       "selection_side_chat",
       "queued_system_notification",
-      "shell_environment_change",
     ]);
     expect(SYSTEM_REMINDER_PER_REQUEST_SOURCES).toEqual([
       "incoming_message",
-      "hook_context",
       "memory_update",
       "relevant_memory",
       "runtime_mode",
@@ -174,6 +178,7 @@ describe("system reminder source descriptors", () => {
       "target_continuation",
       "tool_result_warning",
       "goal_completion_verification",
+      "resume_referenced_session_context",
     ]);
     for (const source of EXPECTED_SOURCES) {
       expect(isMidConversationSystemSource(source)).toBe(
@@ -182,13 +187,18 @@ describe("system reminder source descriptors", () => {
     }
   });
 
-  it("classifies shell environment changes as mid-conversation system notices", () => {
-    expect(getSystemReminderDescriptor("shell_environment_change")).toMatchObject({
-      channel: "mid_turn_event",
-      lifecycle: "mid_turn_event",
-      isMeta: true,
-      providerVisibility: "provider_visible",
-    });
+  it("keeps compaction file restore bodies user-side and the too-large note with the other attachments", () => {
+    // 补回的文件正文在 MCS 开关下都是 user 侧；过大文件的引用提示和其余 compaction 附件一样走 MCS。
+    expect(isMidConversationSystemSource("resume_referenced_session_context")).toBe(false);
+    expect(isMidConversationSystemSource("compact_file_reference")).toBe(true);
+    for (const source of ["resume_referenced_session_context", "compact_file_reference"] as const) {
+      expect(getSystemReminderDescriptor(source)).toMatchObject({
+        channel: "current_turn",
+        isMeta: true,
+        lifecycle: "resume_history",
+        providerVisibility: "provider_visible",
+      });
+    }
   });
 
   it.each(["conversation_fork", "selection_side_chat"] as const)(

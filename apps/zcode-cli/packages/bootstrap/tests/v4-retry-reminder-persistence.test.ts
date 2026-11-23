@@ -67,7 +67,8 @@ it.each([
           modelStreaming: "off",
           titleGeneration: { enabled: false },
           workspacePath: root,
-          toolAllowlist: ["ToolSearch", "Read", "WebFetch", "TodoWrite"],
+          // TaskOutput 是 deferred 工具，用于触发 ToolSearch 公告；TodoWrite 已常驻，只服务 todo 提醒。
+          toolAllowlist: ["ToolSearch", "Read", "TaskOutput", "TodoWrite"],
         },
         {
           sessionStore: store,

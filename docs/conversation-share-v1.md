@@ -2,7 +2,7 @@
 
 ## 状态
 
-- 当前事实 spec，日期：2026-08-31。
+- 当前事实 spec，日期：2026-10-28（新增「分享有效期与分享管理」）。
 - API 基线：会话分享接口 revision 27，加 2026-08-12 联调约定。
 - 本文同时约束发布端、Desktop 导入端和同仓库 `packages/web` 的独立 share 落地页契约。
 
@@ -88,7 +88,7 @@ Preview not_found → 现有 Loader
 不修改错误映射、OAuth、其他错误页、Desktop continuous 或手机 remote replayable 链路。
 
 验收用例 SHARE-NF01（pending）：启动 `pnpm dev:web-share:mock` 后运行
-`node packages/web/test/e2e/manual-review/pending/share-not-found.mjs`。
+`node packages/web/test/e2e/sharing/content/manual-review/pending/share-not-found.mjs`。
 通过匿名访问 fixture → 登录 → 检查账号提示 → 重试 → 同标签页首页导航，验证上述边界；
 另覆盖中英文、320px 手机/桌面视口、深浅主题、无横向溢出及过期页不出现新增内容。
 首页请求由浏览器测试拦截，不依赖外网。组件单测补充其他错误状态的隔离断言。
@@ -279,7 +279,7 @@ artifact 只经 `window.open` 打开、不做 `<img src>`，因此不受 `img-sr
 越界数组/字符串/整数、显式 null 失败，错误包含 row 和嵌套字段路径；普通工具、图片转换与
 分享完整性校验不回退。两端测试使用相同的 workflow display JSON 样本。
 浏览器验收 SHARE-WF01（pending）：启动 `pnpm dev:web-share:test`，运行
-`node packages/web/test/e2e/manual-review/pending/share-workflow.mjs`；测试拦截 preview API，
+`node packages/web/test/e2e/sharing/workflows/manual-review/pending/share-workflow.mjs`；测试拦截 preview API，
 覆盖桌面/手机、中英文、Zai Light/Dark 的基本展示、展开诊断、历史兜底、只读与无横向溢出。
 
 ### 可扩展只读内容块
@@ -346,6 +346,35 @@ revision 冒充 journal 水位。运行中的后台 workflow 不阻止已完成�
 PDF、Office、Markdown/HTML、视频和音频都可以成为预览候选，但 video/audio 当前只允许进入
 “存在但类型不支持”的 warning，不进入可上传 artifact manifest。相同 canonical path 只上传一次。
 
+选择阶段预检与发布阶段使用同一口径判定，预检提示“会跳过”的文件发布时不得再上传，预检放行的文件
+发布时也不得因同一原因失败：
+
+- 用户输入附件的“是否变化”与单文件上限都按附件本身的字节数判断。附件以 data URL 文本保存为 artifact
+  时，执行端 stat 返回解码后的字节数，而不是 data URL 文本长度（后者约为原文件的 4/3，会让所有附件
+  被误判为“在分享前发生变化”，接近上限的附件被误判为超限）。
+- 附件类型：无扩展名不支持，MIME 缺失按 `application/octet-stream`；发布阶段不再把它们当作
+  `txt` / `text/plain` 上传。
+- 可见且类型受支持的预览文件超过单文件上限时，在预检阶段就作为带文件名和上限的阻断项报出；同一文件
+  出现在多轮时，每一轮都报（只取消其中一轮仍会失败）。发布时文件变大导致超限，同样带文件名报错。
+- 产物数量与总大小上限按预检阶段确定会上传的文件合计判断：内嵌图片、通过检查的用户附件、可见且受
+  支持的预览文件（按 canonical path 去重）。发布时另有预算的工作流资源不计入，因此预检只会少算、不会误拦。
+- 数量与总大小是“当前选中轮次”的函数，不是某一轮的属性。Host 在每轮预检结果中返回
+  `artifactBudget`：该轮会上传的每个文件一项（不透明去重键 + 字节数）以及两个上限；这两个聚合阻断项
+  不写进按轮结果。UI 与行数（`rowBudget`）一样按当前选中轮重新聚合：按去重键合并后求数量与总大小，
+  超限时生成带实际值与上限的阻断项。去重键与发布口径一致：附件按行与序号、内嵌图片按来源、预览文件按
+  canonical path 的摘要，跨轮引用同一预览文件只算一次。因此取消轮次后旧的超限会消失，分批预检的轮次
+  合计超限也能在选择阶段发现。没有 `artifactBudget` 的旧结果（或该批因其他阻断提前返回）不参与合计，
+  只会少算。
+
+```text
+勾选/取消 ─► 选中轮集合 ─► 按轮缓存（turnFingerprint 不含选择）
+                              │ 缺缓存的轮 ─► preflight RPC ─► Host 按轮返回 issues + rowBudget + artifactBudget
+                              ▼
+               aggregateConversationShareBlockingIssues（每次选择变化重算）
+                 ├ 行数：Σ rowBudget.count  vs 最小 limit
+                 └ 产物：按 key 去重的 artifactBudget.items → 数量 / 总字节 vs 最小上限
+```
+
 ```text
 正式 attachment / assistant 文件引用
                  |
@@ -403,6 +432,7 @@ ConversationShareSelectionStore 按 sessionId 唯一持有已确认范围、临�
 浮窗可见性由 `open` 表达，范围编辑由 `pendingExcludedRowIds != null` 表达；不再维护旧 scope/stage/view 或全局 dropdown 状态。正文只承担定位展示，勾选和全选统一由范围面板的事务命令处理；`ConversationSharePreflightStatus` 仅显示问题与重试/整轮移除操作，不保留旧下一步与批量选择控件。
 「调整」复制已确认范围到临时选择；逐轮勾选以 productTurnId 为身份，同轮多条 query 一起改变。
 选择面板复用现有提问/回复摘要，点击列表项（文字、摘要或空白）和复选框都切换临时选择；右侧独立定位按钮只跳转正文，不改变勾选。键盘 Enter/Space 可切换文字按钮，定位按钮可独立聚焦；运行中条目不可勾选，但仍可定位。
+分享设置与选择面板按实际水平边界避让，不以会话容器宽度阈值代替重叠判断。侧栏展开的 1024×768 桌面窗口中，两面板水平相交时，选择面板放在设置下方，保留 8px 间隔；列表可滚动，定位、取消和确认可点击。宽窗口恢复并排布局，深浅主题行为相同。
 选择面板各行统一 8px 纵向内边距、4px 标题摘要间距，取消首项特殊缩进；标题 base 常规字重，摘要 sm。Checkbox 与首行 prompt 垂直居中，message 与 prompt 左对齐。选择器宽 320px，窄窗口不超过视口减 16px；prompt 保持一行，message 最多两行并截断。滚动视口上下各使用 32px 透明度 mask 渐隐：仅在对应方向还有内容时显示，到顶/到底时取消对应渐隐；无溢出时不渐隐。mask 不作用于滚动条和底部操作区。顶部固定全选 Checkbox 与列表 Checkbox 左对齐：全选、未选、半选三态；半选时点击补齐全选，全选时点击清空，仅操作已完成的可选行。批量修改仅写入当前选择草稿，确认后生效，取消撤销；无可选行时禁用。
 
 面板采用顶部全选、中间滚动列表、底部状态与操作三层结构。底部默认显示已选轮数，超限时替换为 warning 色「超出上限 N 行」并禁用确认。预检进行中显示检查状态并禁用确认，空选亦禁用确认。行数与上限来自现有服务预检，不写死 500，不把轮数当行数。
@@ -490,6 +520,128 @@ SessionPane 仍独占预检缓存和发布状态，模块不增加持久化或�
 才能提交元信息与缓存，避免失败响应的 capabilities fingerprint 使恢复结果立即失效；过期请求不写入任何状态。
 状态顺序：`checking → ready（阻断）→ 重新检查 → checking → ready（成功或阻断）`。
 
+## 分享有效期与分享管理
+
+服务端契约见 zcode-server `docs/conversation-sharing-design.md` 第 17 节。本节约束客户端与 Web。
+
+### 发布时选择有效期
+
+```text
+目标 Host / Source Server（与发布同一权威）
+  capabilities { ttl_ms, min_ttl_ms?, max_ttl_ms? }
+        │  preflight 结果附带 ttlOptions（同一份 capabilities）
+        ▼
+SessionPane 预检元信息（ref，随 scope 重置）
+        │
+        ▼
+分享浮窗「有效期」选择 ── 写入 selection store 草稿 ttlMs（按 sessionId）
+        │
+        ▼
+publish({ …, ttlMs }) → 服务层按当次 capabilities 校验 → prepare { ttl_ms }
+```
+
+- 有效期范围的唯一数据源是预检结果的 `ttlOptions`。预检与发布在同一 Host 或 Source Server 执行，所以 R3 远程分享读取的是远端账号所连服务端的范围。不在 UI 另行调用 `getCapabilities()`。
+- 选项为 1 小时、1 天、7 天、30 天中落在 `[min, max]` 内的值，再并入服务端默认值，按时长升序。默认选中服务端默认值（当前 7 天）。服务端未返回 `min_ttl_ms/max_ttl_ms` 时不显示该控件，也不发送 `ttl_ms`，行为与旧版一致。
+- 草稿 `ttlMs` 与权限同级：按 sessionId 隔离；收起再打开、开始新一轮分享都保留；参与发布 attempt key，变化后生成新 clientRequestId。`null` 表示使用服务端默认值。
+- 服务层发布时用当次 capabilities 再校验：`ttlMs` 不在范围内或服务端未声明范围时抛 `feature_disabled`，不静默改用默认值。
+- 控件位于权限选择下方，复用权限选择的 Select 规格、label 字号与 32px 控件高度。
+
+### 撤销错误码
+
+- 业务码 `3218`（HTTP 410）映射为错误类型 `revoked`。
+- Web 落地页显示「分享已撤销」，不提供重试。导入显示同义提示。
+- 发布或幂等重试遇到 `3218` 与 `3211/3212` 同样处理：清除旧 attempt，提示重新生成链接。
+
+### 分享管理页
+
+入口：`/share/manage`（英文）与 `/cn/share/manage`（中文），由 web-share 同一 SPA 在解析分享码之前匹配。nginx 已有 `/share/`、`/cn/share/` 的 SPA 回退，不需要新增 location。落地页在已登录时于元信息行显示「管理我的分享」入口，顶部栏不变。
+
+```text
+ConversationShareManagePage（页面内唯一状态 owner）
+  ├─ 无 token ─────────────► 登录选择页（两个 provider）→ OAuth 回到管理页
+  ├─ GET /shares/mine ─────► items[]、nextCursor
+  ├─ GET /shares/capabilities ─► 有效期选项（与首屏列表独立，不阻塞列表，只取一次）
+  │     └─ 加载更多 ───────► GET /shares/mine?cursor=nextCursor，按 share_id 去重追加
+  └─ 行操作（同一行串行，进行中禁用该行操作）
+        PATCH / revoke / restore ─► 用响应项替换该行
+        DELETE ──────────────────► 移除该行
+        失败 ────────────────────► 行内错误；3211/3212 从列表移除该行
+```
+
+- 服务端响应是唯一事实源。不做乐观更新，不在客户端推算过期状态；行内只按 `expires_at` 显示剩余时间。
+- 列表是一张卡片，行之间用分隔线隔开，每行是紧凑的三行结构：
+
+  ```text
+  标题（单行截断）                              [生效中 / 已撤销]
+  可见范围 · 导入权限（仅「凭链接查看」时显示）· 剩余时间
+  创建时间                                       [复制] [打开] [⋯]
+  ```
+
+  - 剩余时间按 `expires_at - 渲染时刻` 显示：至少 1 天显示「剩余 N 天」，至少 1 小时显示「剩余 N 小时」，否则显示「不足 1 小时」。悬停显示完整到期时间。只用于展示，不据此判定过期。
+  - 复制链接、打开是图标按钮，带 `aria-label` 与悬停提示。
+  - 「⋯」更多菜单按分组平铺，组间用分隔线：可见范围（单选）、导入权限（单选；仅自己时禁用）、有效期（从现在起）（选择后立即提交）、撤销或恢复与删除（危险样式）。不用子菜单，因为 320px 下子菜单会超出视口。
+  - 顶部栏与分享落地页使用同一套品牌组合：左侧是 32px 应用图标 + 字标（复用落地页的 `ShareBrandMark`），
+    间距 16px 后是 `text-ui-lg` 页面标题「我的分享」（单行截断），右侧是主题按钮。顶部栏与列表使用同一内容宽度。
+    列表分页且服务端不返回总数，所以不显示分享总数。
+
+    ```text
+    [■Z ZCODE]  我的分享 ………………………………………… [☾]
+    ```
+
+- 可见范围：「仅自己」或「凭链接查看」。导入权限：「仅查看」或「可导入并继续」。映射到 `access_mode`：私有 → `private`；链接 + 仅查看 → `public_readonly`；链接 + 可导入 → `public_importable`。选择「仅自己」时导入权限控件禁用；从「仅自己」改为「凭链接查看」时先设为「仅查看」，用户再按需放开导入。
+- 二次确认：从「仅自己」改为「凭链接查看」、撤销、删除都弹确认对话框。删除的文案说明不可恢复；撤销的文案说明已签发的短期下载链接和已导入的副本不受影响。
+- 有效期：从当前时间重新计算，提交 `ttl_ms`。选项与发布端规则相同：1 小时 / 1 天 / 7 天 / 30 天中落在服务端 `[min_ttl_ms, max_ttl_ms]` 内的值，并入服务端默认值。管理页没有预检，所以加载首屏时请求一次 `GET /shares/capabilities` 作为范围来源。该请求与列表独立，不阻塞列表；返回前不显示有效期分组，返回时登录 token 已变化则丢弃结果。服务端未声明范围或该请求失败时不显示有效期分组，不影响列表与其他操作；该请求返回 401 时与列表一样回到登录页。
+- 分页：每页 20 条，底部「加载更多」，无下一页时隐藏。
+- 401 或 token 失效时清理登录态并回到登录页，与落地页一致。
+- 首屏的列表与有效期两个请求并行。任一请求先返回 401 时，页面回到登录页并清理登录态；之后迟到的另一个响应（成功或失败）一律丢弃，不能把页面改回列表或错误页。判断依据与有效期请求相同：响应返回时当前 token 已不是发请求时的 token。
+- 兼容中英文、320px 手机与桌面视口、Zai Light / Zai Dark。
+
+验收用例 SHARE-MG01（pending）：启动 `pnpm dev:web-share:mock` 后运行
+`node packages/web/test/e2e/sharing/content/manual-review/pending/share-manage.mjs`。覆盖：未登录显示登录页 → 登录后列表 → 加载更多 → 有效期菜单只含服务端范围内的选项（mock 上限 7 天，不出现 30 天；`?mockTtlDelayMs` 模拟慢响应时列表照常出现，返回后分组出现） → 有效期请求先返回 401、列表迟到成功时（`?mockTtlAuthFail=1&mockListDelayMs=N`）页面停留在登录页，不显示列表→ 从更多菜单修改有效期 → 私有改公开的确认与取消 → 导入权限在私有时禁用 → 撤销确认后状态变化与恢复 → 删除确认后移除；中英文、320px/1280px、深浅主题与无横向溢出。
+
+### 来源会话（source_session_id）
+
+发布时把来源会话 ID 交给服务端，管理列表据此提供「跳转对话」。服务端契约见 zcode-server `docs/conversation-sharing-design.md` 第 17 节。
+
+```text
+SessionPane(sessionId) ─publish─► services ─prepare{…, source_session_id: sessionId}─► zcode-server
+                                                       preparation → confirm → share.source_session_id
+GET /shares/mine ─► items[{…, source_session_id?}]   （只在管理 API 返回；公开 preview/continuation 不返回）
+```
+
+- 只上传不透明的会话 ID，不上传工作区路径或 workspaceIdentity。服务端在过期清理时清空该字段。
+- `source_session_id` 参与幂等比较：同一 `client_request_id` 来源不同视为冲突。同一会话重试时取值不变，不影响现有 attempt。
+- R3 远程发布同样上传远端会话 ID。桌面端本地索引里没有它，所以不显示跳转。
+- 旧服务端会忽略这个字段，返回的列表项也不带它，客户端不显示跳转。
+
+### 设置页分享管理（桌面端）
+
+入口：设置 → 数据与统计 → 分享管理（排在归档管理之后）。只在桌面端显示；Web 与手机远控继续使用 `/share/manage`。
+
+```text
+SettingsShareManagement（页面内唯一状态 owner；服务端响应是唯一事实源）
+  ├─ base services.conversationShareService（本机 Host，桌面登录账号的 JWT）
+  │     listManagedShares({cursor?}) ─► GET /shares/mine
+  │     revokeManagedShare / restoreManagedShare / deleteManagedShare ─► /shares/mine/{id}*
+  ├─ 解析跳转目标（每页加载后一次）
+  │     windowControllerService.listTaskList({workspaceScopes:"host", kind:"all", taskIds})
+  │       └─ 命中 ─► {workspacePath, workspaceIdentity?, taskId}；未命中 ─► 不显示跳转
+  └─ 跳转 ─► onOpenTask ─► 与自动化「打开会话」相同的导航（远程 tab 未打开时 fail-closed + toast）
+```
+
+- 只读：不提供修改可见范围、导入权限和有效期。列表行展示与 Web 相同的摘要（可见范围 · 导入权限 · 剩余时间），规则同上。
+- 行操作：复制链接、打开（浏览器打开分享页）、跳转对话（只在解析命中时显示）、「⋯」菜单里的停止分享或恢复、删除。App 文案用「停止分享」，对应服务端 revoke；状态显示「生效中 / 已停止」。
+- 停止分享和删除都弹确认对话框，文案语义与 Web 相同。
+- 行操作同一行串行、不做乐观更新：revoke/restore 用响应项替换该行，DELETE 移除该行；`not_found`/`expired` 从列表移除并提示；其他失败显示行内错误。
+- 未登录：显示登录提示和登录按钮（复用设置页 `onLogin`），登录后重新加载。
+- 已登录但请求返回 `authentication_required`：服务端 401 由 Host 全局登录失效流程处理（`auth:zcode-jwt-invalid` → Root 清空 user、弹出重新登录），页面随之进入未登录分支。全局流程不触发时（例如本地取不到 token，或 401 属于已被替换的旧凭据），页面显示登录提示和「重试」按钮，点击重新加载首屏。
+- 「加载更多」与行操作的响应只写回发起时的同一代列表；首屏重新加载或认证失效后，旧请求的成功和失败都丢弃。
+- 分页每页 20 条，底部「加载更多」。跳转解析只查询本页新增项的 `source_session_id`，不常驻订阅任务列表。
+- 跳转解析只读 Host 本地索引的已存在行（排除已删除），不写任何会话字段。
+- 兼容中英文、Zai Light / Zai Dark；遵守 DESIGN.md 的设置页内容区规范。
+
+验收用例 SHARE-MG02（desktop E2E）：接在 `packages/desktop/test/e2e/conversation-session/sharing/conversation-session-share-publish-import.test.ts` 的 SHARE18 之后，复用其中真实发布的会话 A 分享；mock 分享服务端另预置「其他设备会话」与「无来源」两条分享（测试专用 `POST /shares/__e2e/seed-managed`）。覆盖：进入设置页分享管理时首次列表请求认证失效（`POST /shares/__e2e/fail-next-manage` 注入，不经过全局登录失效流程）→ 显示「重试」→ 重试后列表加载 → 本机会话 A 的分享显示跳转、预置两条不显示 → 不出现权限与有效期控件 → 停止分享确认后状态变为已停止且公开预览返回 410，恢复后重新可访问 → 删除确认后移除 → 在会话 B 中点击跳转后离开设置页并切到会话 A。
+
 ## 发布错误详情契约
 
 发布失败不得只显示首个错误或一条无上下文的 Toast。Host 在 prepare 前必须执行一次
@@ -516,17 +668,75 @@ HTTP 错误分类以故障源为先：网关/负载均衡返回的 5xx 非 JSON 
 
 分享 dock 保留打开状态，发布失败继续停留在发布态 dock 中，并在进度信息下方内联显示可滚动的
 错误详情；发布失败不再显示顶部错误 Toast。错误态保留「调整」、关闭浮窗和「重试生成链接」，
-用户修改选择、标题或权限后清除旧详情。所有详情文案必须同时支持中英文、浅色/深色主题和窄屏布局。
+用户修改选择、标题或权限后清除旧详情。服务端已对内容给出确定拒绝（3205/3207/3208/3209/3216）时，
+原样重试必然得到同样结果：「重试生成链接」置灰，底部提示先取消问题轮次或调整选择；取消该轮、
+调整选择或关闭错误提示后恢复可用。网络、5xx、限流、3210 等仍可直接重试。所有详情文案必须同时支持中英文、浅色/深色主题和窄屏布局。
 
 发布、导入、网页预览共用业务码和 HTTP 状态分类：3216 提示内容未通过安全检查、需调整内容；
 3217 提示安全检查服务暂不可用、稍后重试；通用 5xx 提示分享服务暂不可用。原始数字 code 必须保留，
 包括未知业务码。401/429 空响应分别提示登录和稍后重试，HTML 错误页也按 HTTP 状态判断。
-3211/3212 在发布阶段提示重新生成链接，并清除旧 attempt 以生成新请求 ID；导入的 3211/3212/3214 和不支持的版本不提供原样重试，
+3211/3212，以及 3210 且 rule 为 `preparation_state_invalid`，在发布阶段提示重新生成链接，并清除旧 attempt 以生成新请求 ID；导入的 3211/3212/3214 和不支持的版本不提供原样重试，
 分别提示检查链接或账号、让分享者重新生成、只读分享无法导入、更新 ZCode。3210 不断言文件丢失，
 统一提示上传未完成或分享状态已变化。3215 保持现有有界串行轮询，优先使用合法 Retry-After-Ms。
 
-服务端校验失败的 data 只接收有界的 rule/path/field/row_index/row_kind 结构字段，忽略原始内容与
-其他字段；无效诊断字段不影响错误分类。主提示保持一句原因和下一步，技术位置放入错误详情。
+服务端校验失败的 data 只接收有界的 rule/path/field/row_index/row_kind/artifact_id/actual/limit
+结构字段，忽略原始内容与其他字段；无效诊断字段不影响错误分类。主提示保持一句原因和下一步，技术位置放入错误详情。
+
+产物上传与 confirm 被服务端业务拒绝时，Host 用本端已知信息补齐定位后再交给 UI：`artifact_id`
+（旧服务端未返回时取当前正在上传的产物）反查文件名、类型与所属轮次；`row_index` 指向发给 confirm
+的 rows，反查所属轮次。补齐后的 issue 带 `productTurnId`，UI 展示「取消选择此轮」。rule 到 issue 的
+映射按用户可执行的操作归组，词表以服务端 rule 为准：
+
+| 服务端 rule                                                                                                                                                     | issue                          | 提示的下一步                             |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | ---------------------------------------- |
+| `base64_key`、`nonshare_artifact_uri`、`nonshare_artifact_reference`                                                                                            | `unsafe_url`                   | 取消该轮                                 |
+| `node_repl_images_display`                                                                                                                                      | `inline_tool_image`            | 取消该轮                                 |
+| `unknown_row_key`、`unknown_object_key`、`unknown_row_kind`、`unknown_marker_type`、`unknown_display_kind`、`field_type`                                        | `unsupported_content`          | 更新 ZCode 或取消该轮                    |
+| `row_turn_not_selected`、`turn_header_count_mismatch`、`row_id_not_increasing`、`integrity_mismatch`、`artifact_row_descriptor_mismatch`                        | `stale_conversation`           | 返回选择后重试                           |
+| `field_invalid`、`explicit_null`、`duplicate`、`row_decode_failed`、`integrity_compute_failed`、`non_visible_row`、`invalid_entity_id`、`artifact_ref_mismatch` | `invalid_conversation`         | 取消问题轮次；仍失败复制 request-id 反馈 |
+| `artifact_type_not_allowed`                                                                                                                                     | `artifact_type_rejected`       | 取消该轮                                 |
+| `image_format_mismatch`                                                                                                                                         | `artifact_format_mismatch`     | 改正扩展名或重新导出                     |
+| `image_dimensions_exceeded`                                                                                                                                     | `artifact_dimensions_exceeded` | 缩小图片（单边 ≤ 8192 像素）             |
+| `image_corrupted`、`office_structure_invalid`、`pdf_structure_invalid`                                                                                          | `artifact_corrupted`           | 重新导出文件                             |
+| `text_encoding_invalid`                                                                                                                                         | `artifact_encoding_invalid`    | 转成 UTF-8                               |
+| `artifact_size_limit`、`artifact_count_limit`、`artifact_total_size_limit`、`payload_size_limit`、`rows_limit`、`content_blocks_limit`                          | 同名 issue                     | 显示实际值与上限，减少选择               |
+| `artifact_size_mismatch`、`artifact_sha256_mismatch`、`artifact_descriptor_conflict`                                                                            | `artifact_changed`             | 文件已变化，重新生成后重试               |
+| `preparation_state_invalid`                                                                                                                                     | `preparation_stale`            | 重新生成链接（换新请求 ID）              |
+| `artifact_upload_missing`                                                                                                                                       | `artifact_upload_missing`      | 重试                                     |
+| `safety_rejected_conversation`                                                                                                                                  | `conversation_safety_rejected` | 减少或调整所选轮次                       |
+| `safety_rejected_artifact`                                                                                                                                      | `artifact_safety_rejected`     | 取消该轮或移除该文件                     |
+
+rule 缺失或本端不认识时：能定位到文件则按错误码回退到该文件的通用 issue（3205/3207 无法上传、3208
+类型不支持、3209 单文件超限、3210 未上传完成、3216 未通过安全检查）；只能定位到行则回退为
+`invalid_conversation`；都定位不到时沿用按错误码的单句提示。网络、5xx、限流、登录等传输错误不补齐。
+
+issue 文案需要的定位决定能否生成 issue，不能出现“第 — 轮的 —”：
+
+| 定位要求    | issue                                                                                                                                                                                                                                      |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 文件 + 轮次 | `artifact_type_rejected`、`artifact_format_mismatch`、`artifact_dimensions_exceeded`、`artifact_corrupted`、`artifact_encoding_invalid`、`artifact_upload_rejected`、`artifact_safety_rejected`、`artifact_size_limit`、`artifact_changed` |
+| 轮次        | `unsafe_url`、`inline_tool_image`、`unsupported_content`                                                                                                                                                                                   |
+| 无          | 其余（如 `stale_conversation`、`invalid_conversation`、各聚合上限、`preparation_stale`、`artifact_upload_missing`）                                                                                                                        |
+
+定位不满足时（例如旧服务端在 confirm 阶段返回 3216 `safety_rejected_artifact` 却没有 `artifact_id`）
+不生成 issue，沿用按错误码的单句提示。上传阶段“取当前正在上传的产物”的兜底只用于文件类 issue 和
+rule 缺失/未知的情况；`preparation_state_invalid`、`artifact_count_limit` 等非文件 rule 不钉到当前文件，
+也不显示「取消选择此轮」。
+
+限流（3002 或 HTTP 429，含非 JSON 的网关 429）响应带合法 Retry-After-Ms / Retry-After 时，单句提示写明
+需要等待的秒数；等待超过 10 分钟的值不展示，沿用“请稍后再试”。
+
+验收用例 SHARE-E2E-04（desktop E2E）：接在 `conversation-session-share-publish-import.test.ts` 的
+SHARE25 之后。会话包含一轮纯文本和一轮 PDF 预览卡片；mock 分享服务端通过测试专用
+`POST /shares/__e2e/fail-next-upload` 让下一次上传返回 3208 `pdf_structure_invalid`（mock 自动补
+`artifact_id`）。断言错误详情包含 PDF 文件名与“已损坏或格式不完整”，「重试生成链接」置灰并提示先取消
+问题轮次；点击「取消选择此轮」后错误清除、按钮恢复，重新发布成功。
+
+验收用例 SHARE-E2E-05（desktop E2E）：同一文件中接在 SHARE-E2E-04 之后，自建会话（一轮纯文本、一轮 PDF
+预览卡片）。mock 分享服务端通过测试专用 `POST /shares/__e2e/capabilities` 临时把 `max_artifact_count`
+设为 0。全选时预检出现“产物数量为 1，超过上限 0”，「生成链接」不可用；在范围面板取消 PDF 轮后，不重新
+发预检也立即解除阻断，按钮可用；重新勾选 PDF 轮，阻断项按当前选择重新出现。用例结束恢复默认 capabilities。
+
 服务端请求 ID 优先取 x-request-id，缺失时可取合法的响应 logid；不得使用客户端请求 ID 代替。
 网页错误页同样提供 HTTP/code/服务端请求 ID 详情，导入失败日志保留这些字段供定位。
 
@@ -585,6 +795,7 @@ conversation workspace。产物固定写入 `<workspace>/.zcode-share/<share-id>
    超时（挂住的连接按 network 失败，不得无限停在 downloading 阶段），并在读取 body 前
    预检 `Content-Length`：超过 manifest 声明的 `size_bytes` 时立即中断，不把已知的
    超大响应读进内存——完整性校验放在无界下载之后只保证正确性，不保护客户端资源；
+   每个 artifact 落盘前按下文「产物落盘的类型边界」复核类型、内容签名并生成文件名；
 3. 原子 rename 为 `shared-artifacts/`；
 4. `SharedContextFormatterV1` 按 Rows 原序生成确定性 Markdown，并把 artifact ref 改成相对路径；
 5. SQLite 单事务创建 session、唯一 model-only `shared_context` message 和
@@ -594,6 +805,40 @@ conversation workspace。产物固定写入 `<workspace>/.zcode-share/<share-id>
 整合约束（Todo103）：导入不执行模型，不依赖当前 Provider 可用性。分享上下文消息沿用当前
 结构化 `modelSelection` 存储合同；有明确选择时保留，未绑定时不伪造模型来源，不重新写入旧
 `model.providerID/modelID` 字段。原子导入与后续正常执行的模型校验是两个边界。
+
+### 产物落盘的类型边界（SHARE-SEC01）
+
+continuation 的 manifest 来自发布者，发布者可以绕过客户端直接调用发布 API。size 与 SHA-256
+只证明字节与 manifest 一致，不证明 manifest 可信。曾经的缺陷：落盘文件名直接取 `display_name`，
+而 UI 标签取 `artifact_type`/`mime_type`。声明为 TXT、`display_name=proof.terminal` 的制品会写成
+`.terminal` 文件，UI 仍显示「文本 · TXT」，用户点「在 终端 中打开」即执行其中命令。
+全角后缀经 NFKC 规范化后同样生效，大写后缀在 macOS 上也会被系统关联。
+
+```text
+manifest（发布者可控）            导入服务（本端唯一裁决点）                    磁盘
+artifact_type / extension / mime ─► 本地白名单复核（类型↔扩展名↔MIME）──失败──► 整次导入失败
+display_name ─────────────────────► 只取可读主名 ─┐
+bytes ────────────────────────────► 内容签名复核 ─┼─► <主名>.<声明扩展名> ─► 写 staging
+                                                  └─► 写下载来源标记（macOS quarantine / Windows MOTW）
+```
+
+- `display_name` 只用于展示，不决定落盘扩展名。落盘扩展名取声明的 `extension`（小写），且它必须
+  在本地导入白名单中属于声明的 `artifact_type`，`mime_type` 也必须属于同一类型；任一不符时整次
+  导入失败，issue 为 `artifact_type_not_allowed`。本地白名单与服务端 V1 默认配置一致：
+  `pdf`→pdf、`pptx`/`docx`/`xlsx`→同名、`image`→png/jpg/jpeg/webp、`html`→html/htm、
+  `md`→md/markdown、`text`→txt。服务端新增类型时，客户端需要随版本更新白名单才能导入。
+- 文件名为「可读主名 + `.` + 声明扩展名」。主名取 `display_name` 的 basename 经现有清洗后的结果；
+  主名已以同一扩展名结尾时去掉该后缀，避免 `a.txt.txt`；其他后缀保留在主名中，例如
+  `proof.terminal` → `proof.terminal.txt`。重名仍追加 artifactId 片段消歧。
+- 内容签名按声明类型复核：PDF 以 `%PDF-` 开头；PPTX/DOCX/XLSX 以 ZIP 本地文件头 `PK\x03\x04` 开头；
+  PNG/JPEG/WebP 的文件头与声明扩展名一致；HTML/Markdown/TXT 必须是合法 UTF-8。不符时整次导入
+  失败，issue 为 `artifact_format_mismatch`。这与服务端上传校验同口径，正常分享不会被误拒。
+- 写入 staging 后给每个产物写下载来源标记：macOS 写 `com.apple.quarantine`，Windows 写
+  `Zone.Identifier`（`ZoneId=3`），Linux 没有通用机制不写。标记失败只记 warn，不阻断导入。
+- 发布侧不变：所有发布路径的 `extension` 都取自 `display_name` 最后一个后缀的小写，服务端据此
+  要求两者一致（见服务端 `conversation-sharing-design.md`），旧客户端发布不受影响。
+- 本地打开时的危险后缀确认见 `docs/file-preview-open-apps.md`，它是所有本机文件的第二道防线，
+  不替代本节的落盘约束。
 
 ### 首次导入的选择初始化（Todo139）
 
@@ -742,6 +987,29 @@ flowchart TD
   Renderer --> Readonly[分享注入公开资源]
 ```
 
+### 只读时间线与 App 对话页展示一致性（SHARE-PARITY）
+
+只读时间线（分享落地页与 Desktop 导入块）的轮次、过程收纳、分隔线和用户气泡与 App 对话页同规则，
+只去掉宿主能力（复制、编辑、Fork、反馈、文件打开）：
+
+- 过程入口：工作段有 `workStatus` 且不在运行中时显示「已工作 N / 已停止 / 已处理」，与是否有可折叠过程无关；
+  缺少耗时的兜底文案与 App 同为 `chat.history.worked`。
+- 过程内容：可见工作项投影为空（如只有被隐藏的 Todo）时不挂载收纳容器，不留空白间距。
+- 分隔线：复用 App 的 marker 文案与图标（压缩各状态、模型切换 from → to、目标校验），无模型目录时回退到 provider ID。
+- 用户气泡：宿主宽度不足 624px 时按容器宽度收缩，否则以 36rem 封顶。
+- 图标线宽：Lucide 图标默认线宽与 App 相同（1.5），由 `packages/ui/src/components/icons/windowIcons.ts` 的 `DEFAULT_LUCIDE_STROKE_WIDTH` 统一提供；
+  App 在 `Root` 注入，分享独立入口（`packages/web-share/src/main.tsx`）在渲染根注入，个别图标可显式覆盖。
+
+```text
+同一份公开投影 Rows
+  ├─ App:   ConversationTurnGroup ──┐
+  └─ Share: ReadonlyTurn ───────────┤→ 共用：工作段投影 / 工具 renderer / 分组摘要 / marker 视图
+                                    └→ 差异仅限宿主动作（只读页无操作栏）
+```
+
+浏览器对照验收：`packages/ui/test/browser/manual-review/pending/share-desktop-parity.test.mjs`
+（同一 Rows 左右并排渲染，深浅主题 × 中英文，折叠与展开两态对比可见文案）。
+
 ### 工具展示失败与宿主能力回归
 
 - 内嵌图片有资源 URL 时直接显示；否则由读取能力加载。缺少能力或空结果显示不可用，读取异常显示加载失败并记录日志。切换路径或能力后立即失效旧图片，迟到请求不能覆盖当前结果。
@@ -755,3 +1023,5 @@ flowchart TD
 App 宿主 → 展示能力 Provider → 工具行 / 审批预览
 导入请求 → HTTP 分类 → 传输故障可重试 / 契约损坏不可重试
 ```
+
+分享页页头品牌采用文档站同款组合：32px 黑色圆角应用图标（内部 Z 图形随外框同比缩放，宽度为外框的 22/36）、8px 间距和 62×14px SVG 字标。字标随深浅主题使用前景色，保持 ZCode 无障碍名称；桌面与手机共用，沿用页头宽度测量逻辑。

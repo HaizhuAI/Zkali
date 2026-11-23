@@ -6,6 +6,7 @@ import {
   BUILTIN_PROVIDER_TEMPLATE_IDS,
   ZCODE_AGENT_PROVIDER,
   encodeCustomModelValue,
+  onboardingRecordFileSchema,
   type ProviderFamilyConnectionSelection,
 } from "@zcode/shared";
 import { TID_CHAT_MODEL_SELECT_TRIGGER, TID_V4_MODEL_CONFIG } from "@zcode/shared/test-ids";
@@ -24,10 +25,14 @@ import {
   type SeedReplayProviderModel,
 } from "./model-provider-restart-config.js";
 import { getV4DraftThoughtState } from "./v4-conversation.js";
+import { skipOccupationOnboardingIfPresent } from "./occupation-onboarding.js";
 
 const paths = getE2EAppDataPaths();
 const SETTINGS_FILE = join(paths.appDataDir, "setting.json");
 const CREDENTIALS_FILE = paths.credentialsFile;
+// 设备级引导记录跟随 dataBaseDir，E2E 隔离 HOME 下即 appDataDir。
+const ONBOARDING_RECORD_FILE = join(paths.appDataDir, "onboarding-record.json");
+const BIGMODEL_E2E_USER_ID = "bigmodel-e2e-user";
 async function currentComposerRecentKey(): Promise<string> {
   return browser.execute((workspacePath) => {
     // 首次草稿可能尚无导航缓存；直接读当前草稿 owner，不能用旧 workspace 键或猜测项目。
@@ -65,6 +70,11 @@ export async function seedBigModelConnectionSelection(
   });
 }
 
+/** 关闭"体验套餐有可用额度"提交前推荐，供不验证该推荐的用例使用。 */
+export async function seedStartPlanRecommendationDismissed() {
+  await writeJsonPatch(SETTINGS_FILE, { startPlanRecommendationDismissed: true });
+}
+
 export async function readBigModelConnectionSelection(): Promise<
   ProviderFamilyConnectionSelection | undefined
 > {
@@ -76,16 +86,82 @@ export async function readBigModelConnectionSelection(): Promise<
   return (selections as { bigmodel?: ProviderFamilyConnectionSelection }).bigmodel;
 }
 
+/**
+ * 修复原因：wdio 默认登录身份是 zcode-e2e-user，引导记录只属于它；seed 的 BigModel OAuth
+ * 换成 bigmodel-e2e-user 后，产品按"新身份未答过引导"在工作区就绪之后迟到弹出职业引导，
+ * 覆盖 Provider/模型菜单（Windows CI 的 HS-E2E、I29、SIP、R95C 均停在引导页）。
+ * 这些用例不验证引导，seed 身份时一并写入该身份"已关闭引导"的资格决策，与真实用户
+ * 关闭过引导等价；文件已存在时沿用其 deviceMid 并保留其他身份的记录。
+ */
+async function seedOnboardingDismissedFor(userId: string) {
+  const current = await readJson(ONBOARDING_RECORD_FILE);
+  const entries = Array.isArray(current.entries) ? current.entries : [];
+  const decisions = (Array.isArray(current.decisions) ? current.decisions : []).filter(
+    (decision) => (decision as { userId?: unknown }).userId !== userId,
+  );
+  const record = onboardingRecordFileSchema.parse({
+    version: 2,
+    deviceMid: typeof current.deviceMid === "string" ? current.deviceMid : "zcode-e2e-device",
+    entries,
+    decisions: [
+      ...decisions,
+      {
+        userId,
+        status: "dismissed",
+        reason: "user_closed",
+        decidedAt: new Date().toISOString(),
+      },
+    ],
+  });
+  await mkdir(dirname(ONBOARDING_RECORD_FILE), { recursive: true });
+  await writeFile(ONBOARDING_RECORD_FILE, JSON.stringify(record, null, 2), "utf-8");
+}
+
 export async function seedBigModelOAuthCredential() {
+  await seedOnboardingDismissedFor(BIGMODEL_E2E_USER_ID);
   await writeJsonPatch(CREDENTIALS_FILE, {
     "oauth:active_provider": "bigmodel",
     "oauth:bigmodel:access_token": "e2e-bigmodel-oauth-token",
     "oauth:bigmodel:user_info": JSON.stringify({
       displayName: "BigModel E2E",
-      id: "bigmodel-e2e-user",
+      id: BIGMODEL_E2E_USER_ID,
       username: "bigmodel-e2e-user",
     }),
   });
+}
+
+/**
+ * 换成种入的 BigModel 身份重启后，等该身份的职业引导判定落定；需要引导时按真实 UI 跳过。
+ * 修复原因：settings 已有职业时主界面不等判定先渲染；新身份没有引导记录也没有本地任务，
+ * 判定稍后返回需要引导，引导页整页盖住主界面。Windows 上主界面就绪早于判定结果，
+ * 随后点不到模型选择器。判定落定只有两个事实：引导页已出现，或本地引导记录已有该身份
+ * （作答、关闭或存量用户）。不能把主界面可见当作就绪，也不能用固定等待猜时序。
+ */
+export async function settleBigModelIdentityOnboarding() {
+  await browser.waitUntil(
+    async () =>
+      (await $('[data-testid="onboarding-page"]').isExisting()) ||
+      (await hasOnboardingIdentityRecord(BIGMODEL_E2E_USER_ID)),
+    { timeout: 30_000, timeoutMsg: "BigModel 身份的职业引导判定没有落定" },
+  );
+  await skipOccupationOnboardingIfPresent();
+}
+
+async function hasOnboardingIdentityRecord(userId: string): Promise<boolean> {
+  let raw: string;
+  try {
+    raw = await readFile(ONBOARDING_RECORD_FILE, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+  const record = JSON.parse(raw) as {
+    entries?: { userId?: string | null }[];
+    decisions?: { userId?: string | null }[];
+  };
+  return [...(record.entries ?? []), ...(record.decisions ?? [])].some(
+    (item) => item.userId === userId,
+  );
 }
 
 /** 为需要经过 Highspeed 网关鉴权的 E2E 补齐登录 JWT。 */
@@ -102,12 +178,13 @@ export async function seedHighspeedLoginCredential() {
  * `zcodejwttoken`；只 seed business access token 会让菜单把 Start Plan 判成未认证。
  */
 export async function seedBigModelStartPlanCredential() {
+  await seedOnboardingDismissedFor(BIGMODEL_E2E_USER_ID);
   await writeJsonPatch(CREDENTIALS_FILE, {
     "oauth:active_provider": "bigmodel",
     "oauth:bigmodel:access_token": "e2e-bigmodel-oauth-token",
     "oauth:bigmodel:user_info": JSON.stringify({
       displayName: "BigModel E2E",
-      id: "bigmodel-e2e-user",
+      id: BIGMODEL_E2E_USER_ID,
       username: "bigmodel-e2e-user",
     }),
     zcodejwttoken: "e2e-bigmodel-start-plan-jwt",
@@ -122,6 +199,7 @@ export async function seedReplayProvider(params: {
   id: string;
   models: readonly SeedReplayProviderModel[];
   name: string;
+  templateId?: string;
 }) {
   const baseURL = params.baseURL ?? (await resolveSeededReplayBaseUrl());
   if (!baseURL) {
@@ -130,6 +208,7 @@ export async function seedReplayProvider(params: {
   const provider: PersonalProviderConfigSeed = {
     id: params.id,
     label: params.name,
+    ...(params.templateId ? { templateId: params.templateId } : {}),
     // 内建 account provider 的模型规则按 anthropic-messages 匹配；若用 OpenAI Chat Completions
     // 格式覆盖连接配置，GLM builtin model rules 不会命中，模型在 Registry 中
     // 会因缺少完整 option/properties 被过滤，UI 菜单就看不到该计划模型。

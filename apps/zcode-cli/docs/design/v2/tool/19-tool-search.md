@@ -1,5 +1,7 @@
 # ToolSearch：启用、持久化与冷恢复
 
+动态 MCP：普通 step 固定快照，实时 ToolSearch 有限等待，MCP 状态（pending、needs-auth、failed）并入名称 delta。完整合同见 [动态 MCP spec](../../../../../../docs/mcp-async-tool-catalog-cache.md)。
+
 ## 模块边界
 
 `tool-discovery` 登记现有搜索 schema、搜索控制入口及请求投影；对外继续使用现有函数，
@@ -9,9 +11,15 @@
 
 ## App Settings 模式
 
-常规设置提供 `toolSearchMode: auto | local | off`，缺省 `off`。`auto` 按每次请求的
-实际 Model 决定 Native/Local；`local` 固定走 Local，沿用能力校验；`off` 使用全量工具。
-CLI 四值参数及默认 Off 不变，独立 CLI 不读取 App Settings。
+常规设置提供 `toolSearchMode: auto | local | off`，缺省 `off`。
+`auto` 按每次请求的实际 Model 决定 Native/Local：Anthropic Messages + Coding Plan 走 Native，
+其他支持 tool call 的模型走 Local；`local` 固定走 Local，沿用能力校验；`off` 使用全量工具。
+App 缺省值只在 `packages/shared` 的 `DEFAULT_APP_TOOL_SEARCH_MODE` 定义一次，设置 schema、
+Host 偏好响应和设置页初始显示都读它。CLI 四值参数及默认 Off 不变，独立 CLI 不读取 App Settings。
+
+2026-11-05 App 缺省曾改为 `auto`，2026-11-09 改回 `off`。该缺省只进入未正式发布的
+v3.18.0 构建，所以不做迁移；同期把 TodoWrite/WebFetch/WebSearch/submit_result 改为常驻的
+变化保留（见下文常驻名单）。缺省值变化不覆盖用户已保存的任何选择。
 
 工具搜索设置行底部常驻显示实验性说明：模型供应商未完整支持原生 ToolSearch 时，
 使用原生模式可能导致缓存失效并增加 Token 用量。中英文文案含义一致，复用设置行的底部
@@ -125,6 +133,19 @@ SQLite -> hydrate 目标调用与结果 -> 请求渲染时恢复原始包装 -> 
 名称与内层参数；重存、历史复制和分支恢复必须保留。执行参数与历史隔离，Hook、审批和
 handler 不得修改历史原始输入。不重复存储包装 input；删除开发阶段旧 modelToolCall 格式，
 不保留兼容读取或数据迁移。准入失败只保存包装失败记录。
+
+准入失败的文字（`errorCode` 1，executor 包成 `<tool_use_error>…</tool_use_error>`，2026-11-14 起；原来不带标签）：
+
+```text
+DeferredToolCall is not available for this request.
+Invalid DeferredToolCall input.
+Tool not available in this request: <name>
+Call <name> directly using its normal tool call; DeferredToolCall only accepts deferred tools.
+```
+
+包装入参本身不是合法 JSON 时，先返回无法解析的 JSON 错误（根目录 `docs/model-tool-call-validation.md`），名称是
+`DeferredToolCall`；入参缺字段时返回 InputValidationError，二者都在上面四句之前判定（第一句除外：本请求不提供
+DeferredToolCall 时先返回第一句）。
 请求渲染在已有遍历中恢复包装调用及结果名，剥离内部标记；不新增历史扫描或 callID 缓存。
 Todo 等业务判断直接使用内部目标身份；microcompact 用 sourceEntries 分类，仍用投影后的
 消息估算 token。V4 以 scheduled 目标事件定稿工具行，迟到原始流不得覆盖已定稿输入；
@@ -169,9 +190,8 @@ Explore 的 direct/embedded 两个白名单都包含搜索控制入口，保留�
 
 Native 模式使用工具引用协议。默认 off；显式 auto/native/local 的选择规则见上文。
 Runtime 使用启动时确定的模式，子 Agent 继承，不写入 session；App 设置与 CLI 覆盖的来源见上文。
-无 deferred 或必要控制工具
-被禁用时恢复全量定义并记录原因。MCP 保持现有初始化；不实现异步就绪、搜索等待、
-OpenAI 原生引用、auto:N 或历史调用自动补装。
+无 deferred 且无 pending 服务，或必要控制工具被禁用时恢复全量定义并记录原因。MCP 交互入口后台启动；ToolSearch 实时读目录，并在无匹配或 select 缺项时最多等待相关 pending 服务 5 秒。
+不实现 OpenAI 原生引用、auto:N 或历史调用自动补装。
 
 ```mermaid
 flowchart TD
@@ -229,10 +249,18 @@ Model requestCapabilities.toolSearch 保存 protocolSupported/defaultEnabled；�
 toolSearchEnabled。ToolMetadata 增加 shouldDefer/alwaysLoad/searchHint；请求工具增加
 deferLoading；模型内容增加严格的 `{type:"tool_reference",toolName:string}`。
 
-内置常驻名单：Agent/AskUserQuestion/Bash/Edit/Glob/Grep/Read/ReportFindings/Skill/ToolSearch/Write。
+内置常驻名单：Agent/AskUserQuestion/Bash/Edit/Glob/Grep/Read/ReportFindings/Skill/TodoWrite/
+ToolSearch/WebFetch/WebSearch/Write，外加 workflow actor 会话的 submit_result。
 只暴露当前已注册、作用域允许且满足原有可见性规则的工具；当前没有 ReportFindings 实现，
-不因名单而新增工具。其余已注册内置工具统一在各自 metadata 声明 shouldDefer: true，
-包括 ZCode 工作流（含 FillWorkflowHole）、OffPeak、TodoRead、CronUpdate、js 和子 Agent 协作工具。
+不因名单而新增工具。submit_result 只在注入 `workflowSubmitPort` 时注册，因此"常驻"只作用于
+actor 会话，主会话目录不变；每个 actor 都要调用它交付结果，延迟加载只会多一次搜索往返，
+Local 下还会经 DeferredToolCall 包装而丢掉 typed 声明的 strict 约束。
+升级前创建的会话接受以下行为，不做迁移：旧公告里的 TodoWrite/WebFetch/WebSearch 不会被删除公告
+修正，因为删除只对照当前完整作用域目录，这些工具仍可用；模型照 Local 旧历史再发
+`DeferredToolCall {name:"TodoWrite"}` 时，包装入口返回可恢复错误
+"Call TodoWrite directly using its normal tool call"，模型改为直接调用即可。
+其余已注册内置工具统一在各自 metadata 声明 shouldDefer: true，
+包括 ZCode 工作流（含 FillWorkflowHole）、OffPeak、TodoRead、CronUpdate、js、escalate 和子 Agent 协作工具。
 ReplyToChannel 保留实现但不默认注册，因此不进入搜索目录或 provider 工具列表。
 Task 兼容入口保持 providerVisible: false，不因 deferred 分类而进入请求或搜索目录。
 不开启 ToolSearch 时保留完整工具集；开启时首轮只发送常驻定义，真实搜索发现后才追加
@@ -268,6 +296,9 @@ runtime schema 仍接受省略 max_results，沿既有执行链先补默认值 5
 
 2026-10-21：Native/Local 共用描述的精确选择示例改为
 `"select:TodoWrite,mcp__byob__browser_navigate" — fetch these exact deferred tools by name`。
+2026-11-05：TodoWrite 改为常驻后，示例改为
+`"select:TaskStop,mcp__byob__browser_navigate" — fetch these exact deferred tools by name`，
+避免示例点名一个常驻工具；选用未废弃的 TaskStop，与 Local 调用示例一致。
 空匹配模型结果固定为以下文本；本次仅调整文案，不修改精确选择、已加载工具或关键词匹配行为：
 
 ```text
@@ -276,8 +307,9 @@ No matching deferred tools found. Loaded tools are not searchable here and need 
 
 未搜索不是执行禁令；未发现工具的参数校验失败提示先搜索加载定义。
 
-内置 deferred 工具的 metadata.searchHint 采用以下检索材料，不改 provider description、
-参数、排序权重或常驻工具；MCP 继续使用自身的 searchHint。
+内置工具的 metadata.searchHint 采用以下检索材料，不改 provider description、
+参数或排序权重；MCP 继续使用自身的 searchHint。关键词搜索只搜 deferred 工具，
+WebFetch/WebSearch/TodoWrite 转为常驻后保留 searchHint，但不参与关键词匹配。
 
 | 工具          | searchHint                                                  |
 | ------------- | ----------------------------------------------------------- |
@@ -329,31 +361,41 @@ Native 与 Local 的真实 provider 请求均验证这段说明和参数描述�
 - 新增公告完整列名；恢复公告分 MCP 与其他两段。MCP 段按 server 汇总名称及数量，文案为
   `available again (MCP server reconnected — names announced earlier in this conversation)`；
   其他工具逗号列名，文案为 `available again in this session (announced earlier in this conversation)`。
-- 删除分三段，顺序如下，之后追加 ambient-context 提示：
+- 删除分三段，顺序如下：
   1. 已离开工具目录、名称以 `mcp__` 开头：文案为 `(their MCP server disconnected)`，超过 30 个时
      按 server 汇总为 `(MCP server disconnected)` 计数版。
   2. 已离开工具目录的其他工具：文案为 `no longer available in this session`，逐行列名。
   3. 仍在 registry、只因本轮限制隐藏：保留中性文案 `no longer available`（不超过 30 个逐行，
      超过时汇总），不声称会话内不可用。
 - MCP 段只按名称前缀判断，不读取 `McpPort.status()`；server 仍连接但工具被移除、server 被停用或
-  删除时也写断开与重连。非 MCP 名称不会写成 MCP 断开。
+  删除时也写断开与重连。非 MCP 名称不会写成 MCP 断开。已列入撤销段的工具不再写成断开。
+- 删除按实际来源和连接事实解释。连接失败仅表示当前不可用；配置删除、禁用或策略撤销要求忽略旧定义及其描述中的指令（撤销段按原因分组）。来源恢复后用恢复段解除撤销。
+- 段落顺序：新增 → 恢复可用（MCP、其他）→ 撤销解除 → 删除三段 → 撤销 → ambient-context 提示
+  （有删除或撤销时）→ MCP 连接状态（需要授权、连接失败、仍在连接）。仍在连接段落写当前模式的搜索入口名。
 - 各公告段用空行分隔，沿用 `<system-reminder>` 包装和现有增量 metadata。每次请求按当前模式
   从 metadata 重新渲染公告（见上文 Local 命名），所以文案只能依赖持久化的事实。
   "本轮隐藏"要在生成时查 registry，之后 registry 会变：生成时把这些名称记为
   `toolSearchHiddenNames`，与 `toolSearchAnnouncement` 同级。`toolSearchAnnouncement` 按严格
   schema 校验，旧版本读到新键会丢掉整条公告事实；同级字段是宽松字段，旧版本忽略它。
   没有这个字段的旧记录，删除名称按"已离开工具目录"渲染。
-- 工具因本轮限制暂时隐藏时仍按现有增量逻辑公告；
-  相同目录不重复追加。不增加 pending/鉴权诊断、异步初始化或搜索等待。
-- 链路：`增量事实 + 隐藏名称 -> 持久化 -> 请求投影按当前模式渲染`；纯 Continue 不生成公告。
+- MCP 扩展事实记为同级的 `toolSearchMcpDelta`：pending、needs-auth、失败诊断、撤销和恢复。
+  渲染与生成使用同一个函数和同一份事实；没有这个字段时，输出与只有三数组的公告逐字节一致。
+  名称相同而状态改变也可生成公告；完全不变时不生成 delta；生成 delta 时包含当前状态正文。不新增独立 Ready 正文。
+  请求模式不是 off 且控制工具可用时才生成公告；已生成的公告只在请求模式为 off 时隐藏。
+- 工具因本轮限制暂时隐藏时仍按现有增量逻辑公告；相同目录与相同 MCP 状态不重复追加。
+- 最后一个当前 deferred 工具删除时仍提交删除公告；历史有已交付定义与有效引用时保留 ToolSearch。旧 mcp_server_status 不再投影，历史原文不改写。Off 不给出不可用的搜索或等待指引。
+- Native 保留真实 tool references；Local 在下一个普通 step 使用新目录展开 schema。实时搜索不修改同批 registry。纯 Continue、重试和 reactive compact 沿用固定快照。
+- 链路：`增量事实 + 隐藏名称 + MCP 扩展事实 -> 持久化 -> 请求投影按当前模式渲染`；纯 Continue 不生成公告。
   同一模式下每次请求和冷恢复后渲染出同一段文案，缓存前缀不变。
   不改 App 协议、Desktop continuous 或手机 replayable 交付边界。
 
 Local 描述首句明确 deferred 工具通过 `DeferredToolCall` 调用；搜索与返回格式说明保持
 原有 `<functions>` / `<function>` 结构，明确 `parameters` 描述的是包装调用的 `input`。
 不再声称与 prompt 顶部工具列表具有相同编码，也不使用抽象的 classification 说明。
-常驻工具仍直接调用。只保留一个简短的 TodoWrite `<example>`，展示顶层 `name` 和完整
-`input`，不增加场景对白或 `<commentary>`；不要求已经加载的工具重搜。
+常驻工具仍直接调用。只保留一个简短的 TaskStop `<example>`（2026-11-05 前为 TodoWrite，
+TodoWrite 转为常驻后改用没有注册门控、未废弃的 deferred 工具），展示顶层 `name` 和完整
+`input`；`task_id` 的值写占位符 `<task_id returned when the task started>`，不写虚构 ID，
+避免模型照抄。不增加场景对白或 `<commentary>`；不要求已经加载的工具重搜。
 示例按当前包装及目标工具 schema 校验，CLI/PTY E2E 检查 Local/auto 与冷恢复请求中的
 实际 description，Native 完整文案由既有 wire 测试保护。本次只改 Local 描述，不改变结果
 投影、调用参数、执行逻辑或重复搜索反馈；bench 行为收益需另行验证。
@@ -394,14 +436,14 @@ Compact 成功 -> 按保留历史重建公告 -> 替换上下文 -> 后续请求
   与其他输入附件一样跳过 output-token recovery 和新轮通知的首个请求；公告先进入
   canonical 与 turn-local 历史，再复制 requestEntries。纯 Continue 不调用公告生成器，已有公告随快照保留。
 - 目录在纯 Continue 期间变化时，增删公告等待下一次正常收集；每次请求的 schema、
-  引用、权限与启用判断仍执行。不扩展 MCP pending/failed/鉴权状态。
+  引用、权限与启用判断仍执行。MCP pending、失败与撤销事实使用独立 metadata 扩展，不改变旧名称增量 schema。
 - Compact 在摘要成功后调用同一纯公告生成器：full 使用空保留历史，保留尾部的 compact
   使用 preservedEntries 比较。公告加入 postCompactReminderEntries；失败、取消或跳过不提交。
   Auto/Reactive 在 Continue 期间触发时同样重建，不依赖下一次正常提醒收集。
 - Compact 公告读取继续执行的工具目录，不能使用摘要请求裁剪后的候选工具。
   内部 getContinuationTools 回调复用本轮工具作用域筛选；手动 compact 使用当前 Runtime/Model。
   不改变摘要工具策略，不为 scope 建立第二份状态。
-- 公告仍是内存历史中的派生提醒，不新增持久化字段；冷启动首次正常收集时重建。
+- 公告通过既有 runtimeMessage metadata 保存；旧名称增量保持三数组，独立 toolSearchMcpDelta 保存 MCP 状态、撤销与恢复，单独校验并丢弃未知字段。compact 重建只比较名称，不写 MCP 状态、不计算撤销。冷恢复后按保留历史继续计算增量。
   已发现工具仍仅由真实引用和 compact 检查点恢复，P/C、App 协议及多端交付边界不变。
 - 回归捕获真实 Runtime 的 Model 请求与 canonical 历史：连续三次续写及下一输入均只有一份
   首次公告；目录变化、正常工具批次、full/保留尾部/续写期间 compact、失败取消、scope、
@@ -420,6 +462,9 @@ toolSearchAnnouncement?: {
 ```
 
 三个数组始终存在、去重、排序；readdedNames 是 addedNames 的子集。
+只有名称有变化时才写这个键；只有状态、撤销或恢复的公告只写 `toolSearchMcpDelta`。
+读取方按"两个键有其一"识别公告（off 隐藏、按模式重渲染、空正文过滤、冷恢复、状态累积）。
+旧版本按三个数组重渲染正文，三个数组都为空会得到空正文并报错；不写这个键时旧版本按普通合成文本恢复。
 不保存完整目录 snapshot 或 addedLines；完整列名为 addedNames − readdedNames。
 历史复制分别复制三个数组，不能共享可变引用。
 
@@ -512,14 +557,14 @@ Native 成功且投影后仍有有效引用的每条搜索结果，派生一条 
 Local 仅使用结果内的加载和调用指引，不追加外部提示（见下文逐项反馈合同）。
 提示不写 canonical 历史或数据库，Off、错误、无匹配
 及引用全部失效不生成。复用现有引用和消息遍历，保留媒体真实用户索引、sourceEntries 与缓存标记。
-Continue 与 compact 过滤 query-local Continue 后重建请求记录时，复用本次引用投影已计算的
-有效结果 callID 集合；成功提示的位置和数量与实际请求一致，不重新扫描引用或持久化提示。
-回归同时检查实际 Model 请求、ModelRequest 事件及主轮状态快照，保留 Continue 不进入记录的规则。
+Continue 按隐藏提醒记录持久化，ModelRequest 事件与实际请求是同一份消息，成功提示的位置和数量与实际请求一致，
+不重新扫描引用或持久化提示。回归同时检查实际 Model 请求、ModelRequest 事件及主轮状态快照。
 
-参数校验失败且目标为当前未发现 deferred 工具时，在原有错误后以空行追加完整纠错段落：
+参数校验失败且目标为当前未发现 deferred 工具时，在原有错误正文之后、`</tool_use_error>` 之前以空行追加完整纠错段落：
 说明定义尚未进入已发现集合，以及数组、数字、布尔值被当作字符串输出时会导致参数校验失败；
 随后给出精确 `select:<canonicalName>`、重试指引和当前完整 input schema。
-Native 使用公共段落；Local 在段落末尾另起一行保留 DeferredToolCall 调用说明。
+Native 使用公共段落；Local 在段落末尾另起一行保留 DeferredToolCall 调用说明。这两部分都在包装之内。
+修复原因：段落原来接在 `</tool_use_error>` 之后，落在包装外面；纠错说明属于这次校验错误，应和错误正文在同一个包装里。
 回归断言完整段落及其与原始校验错误的拼接，不仅检查关键词。
 未搜索不成为执行禁令；已发现/Off/不存在工具维持原有错误。
 
@@ -732,7 +777,7 @@ Local 反馈全部位于 tool_result 内，不再派生结果外的 `Tool loaded
 
 ```text
 <system-reminder>
-Loaded: TodoWrite. Call it now with DeferredToolCall {"name":"<tool name>","input":{...}}, using the exact tool name and filling input according to its schema above. No additional ToolSearch is needed before calling these tools.
+Loaded: TaskOutput. Call it now with DeferredToolCall {"name":"<tool name>","input":{...}}, using the exact tool name and filling input according to its schema above. No additional ToolSearch is needed before calling these tools.
 </system-reminder>
 ```
 
@@ -740,7 +785,7 @@ Loaded: TodoWrite. Call it now with DeferredToolCall {"name":"<tool name>","inpu
 
 ```text
 <system-reminder>
-Loaded: TodoWrite, WebFetch. Call them now with DeferredToolCall {"name":"<tool name>","input":{...}}, using the exact tool name and filling input according to its schema above. No additional ToolSearch is needed before calling these tools.
+Loaded: TaskOutput, TodoRead. Call them now with DeferredToolCall {"name":"<tool name>","input":{...}}, using the exact tool name and filling input according to its schema above. No additional ToolSearch is needed before calling these tools.
 </system-reminder>
 ```
 
@@ -820,3 +865,9 @@ unavailable schema 保留，不调整 UI、auto-compact 估算或多端交付边
 - 未运行 Windows/Linux、手机真机或真实 provider。用户确认 bench 位于本机不可访问的局域网机器；
   重复搜索率、任务成功率、token 开销及服务端 cache usage 待该环境验证。受控响应不证明模型会减少搜索。
 - 生产变更仅 4 个文件，不新增测试生产接口、数据库字段或 UI/多端链路。未提交、未推送。
+
+实时查询与普通 step 共用 MCP session 视图；查询不维护独立目录，不修改批次 registry，也不推动连接或目录刷新任务。
+
+### 历史定义交付
+
+Native 历史引用与当前目录分离。deferred 工具只记录被引用、并以 defer_loading 发送过的定义；常驻 MCP 定义首次出现时记录并冻结，离开目录后原位重新声明。请求准备纯投影已交付定义，只有有效 assistant 或保留的 partial 提交后才写入既有历史 metadata；记录不进入执行 registry，省略值为 undefined 的可选字段。撤销资格为被引用的 retained 名字加常驻记录；仅公告名称不算加载。compact 携带保留段引用的记录和已离开、未撤销的常驻记录。

@@ -604,6 +604,100 @@ describe("ProductProjection 黄金测试（L1）", () => {
     expect(rows.find((row) => row.kind === "toolCall")?.assistantResponseId).toBe("assistant-cua");
   });
 
+  it("projects the submitted model, mode and Plan onto the user input row", () => {
+    // docs/ui/composer-edit-mode.md：编辑最后一条消息时工具栏载入它提交时的配置，与排队项编辑一致。
+    // 配置来自该输入的 canonical intent；旧输入没有这些字段时行上也不带，前端沿用当前配置。
+    const modelSelection = {
+      providerId: "provider-a",
+      modelId: "model-a",
+      options: { reasoningLevel: "high" },
+    };
+    const log = new EventLog();
+    log.push(SessionEventType.SessionCreated, { mode: "default", contextWindow: 200_000 });
+    log.push(
+      SessionEventType.TurnStarted,
+      {
+        turnNumber: 1,
+        input: "with config",
+        inputId: "command-with-config",
+        intent: {
+          sourceCommandId: "command-with-config",
+          kind: "sendText",
+          text: "with config",
+          admissionSeq: 1,
+          admittedAt: 10,
+          requestedDelivery: "startNow",
+          admittedDelivery: "startNow",
+          modelSelection,
+          mode: "yolo",
+          planEnabled: true,
+        },
+      },
+      { turnId: "turn-config" },
+    );
+    log.push(
+      SessionEventType.TurnStarted,
+      { turnNumber: 2, input: "legacy input" },
+      { turnId: "turn-legacy" },
+    );
+
+    const userRows = runAll(log.events)
+      .projection.getSnapshot()
+      .rows.window.filter((row) => row.kind === "userInput");
+    expect(userRows[0]).toMatchObject({ modelSelection, mode: "yolo", planEnabled: true });
+    expect(userRows[1]).not.toHaveProperty("modelSelection");
+    expect(userRows[1]).not.toHaveProperty("mode");
+    expect(userRows[1]).not.toHaveProperty("planEnabled");
+  });
+
+  it("projects the submitted config onto user rows drained from the queue or guide", () => {
+    // 队列续跑/guide 注入的 real-user 行同样可编辑；提交配置必须与 TurnStarted 行一致投影，
+    // 否则编辑时会误当作旧消息而沿用当前工具栏（MR 3454 评审 CR-01）。
+    const turnId = "turn-drain-config";
+    const modelSelection = { providerId: "provider-a", modelId: "model-a" };
+    const log = new EventLog();
+    log.push(SessionEventType.SessionCreated, { mode: "default", contextWindow: 1000 });
+    log.push(SessionEventType.TurnStarted, { turnNumber: 1, input: "hi" }, { turnId });
+    log.push(
+      SessionEventType.TurnSteerDrained,
+      {
+        pendingInputIds: ["pi-config"],
+        targetTurnId: turnId,
+        injectedMessageIds: ["message-config"],
+        drainedInputs: [
+          {
+            pendingInputId: "pi-config",
+            messageId: "message-config",
+            text: "drained with config",
+            delivery: "guide",
+            intent: {
+              sourceCommandId: "command-config",
+              queueItemId: "pi-config",
+              clientId: "desktop",
+              kind: "sendText",
+              admissionSeq: 1,
+              admittedAt: 10,
+              requestedDelivery: "guide",
+              admittedDelivery: "guide",
+              modelSelection,
+              mode: "yolo",
+              planEnabled: true,
+            },
+          },
+        ],
+      },
+      { turnId },
+    );
+
+    expect(runAll(log.events).projection.getSnapshot().rows.window.at(-1)).toMatchObject({
+      kind: "userInput",
+      text: "drained with config",
+      modelSelection,
+      mode: "yolo",
+      planEnabled: true,
+    });
+  });
+
   it("preserves topic originals and attachment ownership when replaying accepted turn events", () => {
     const source = {
       provider: "feishu",
@@ -1508,6 +1602,7 @@ describe("ProductProjection 黄金测试（L1）", () => {
   it("BG26：合并通知按块投影，失败任务不读下一条通知的结果", () => {
     const turnId = "turn-agent-launch";
     const failedSummary = 'Agent "A" failed: Permission denied';
+    const partialFailedSummary = 'Agent "C" failed: Requests are too frequent.';
     const notification = (toolCallId: string, lines: string[]) =>
       [
         "<task-notification>",
@@ -1522,7 +1617,7 @@ describe("ProductProjection 黄金测试（L1）", () => {
       { turnNumber: 1, input: "launch agents", messageId: "user-agent-launch" },
       { turnId },
     );
-    for (const toolCallId of ["tool-agent-a", "tool-agent-b"]) {
+    for (const toolCallId of ["tool-agent-a", "tool-agent-b", "tool-agent-c"]) {
       log.push(
         SessionEventType.ToolCallScheduled,
         {
@@ -1549,7 +1644,7 @@ describe("ProductProjection 黄金测试（L1）", () => {
     }
     log.push(
       SessionEventType.TurnComplete,
-      { response: "", tokenCount: 0, toolCallCount: 2, duration: 1, resultType: "success" },
+      { response: "", tokenCount: 0, toolCallCount: 3, duration: 1, resultType: "success" },
       { turnId },
     );
     // 合并轮的 originMeta 只有基字段，没有逐任务的结构化结果。
@@ -1566,6 +1661,13 @@ describe("ProductProjection 黄金测试（L1）", () => {
             "<status>completed</status>",
             '<summary>Agent "B" finished</summary>',
             "<result>Tests passed</result>",
+          ]),
+          // local agent 失败通知带 <note>，<result> 是只给模型的部分报告。
+          notification("tool-agent-c", [
+            "<status>failed</status>",
+            `<summary>${partialFailedSummary}</summary>`,
+            "<note>A task-notification fires each time this agent stops.</note>",
+            "<result>Interim findings: module A.</result>",
           ]),
         ].join("\n\n"),
         inputSource: "background_task",
@@ -1587,6 +1689,12 @@ describe("ProductProjection 黄金测试（L1）", () => {
     expect(toolRow("tool-agent-b")).toMatchObject({
       output: { text: "Tests passed" },
       status: "success",
+    });
+    // 回归：失败原因不能退到部分报告，卡片 output 与 hover 仍是这条通知自己的 summary。
+    expect(toolRow("tool-agent-c")).toMatchObject({
+      error: { code: "fault.runtime.backgroundTaskFailed", message: partialFailedSummary },
+      output: { text: partialFailedSummary },
+      status: "error",
     });
   });
 
@@ -4040,13 +4148,22 @@ describe("V4 API 重试状态投影", () => {
 
   it("配置读取重试保留错误类别，桌面与手机使用同一状态", () => {
     const { log, projection } = runningProjection();
-    const deltas = projection.applyEvent(log.push(
-      SessionEventType.ModelNetworkStatus,
-      modelStatus({ type: "model_retry_scheduled", delayMs: 2000, nextAttempt: 2,
-        reason: "network_error", errorCode: ModelErrorCode.ModelRequestVerificationConfigNetwork }),
-      { turnId: "turn-retry-1" },
-    ));
-    expect(projection.getSnapshot().control.apiRetry?.reasonCode).toBe("request_verification_config_network");
+    const deltas = projection.applyEvent(
+      log.push(
+        SessionEventType.ModelNetworkStatus,
+        modelStatus({
+          type: "model_retry_scheduled",
+          delayMs: 2000,
+          nextAttempt: 2,
+          reason: "network_error",
+          errorCode: ModelErrorCode.ModelRequestVerificationConfigNetwork,
+        }),
+        { turnId: "turn-retry-1" },
+      ),
+    );
+    expect(projection.getSnapshot().control.apiRetry?.reasonCode).toBe(
+      "request_verification_config_network",
+    );
     expect(() => conversationSnapshotSchema.parse(projection.getSnapshot())).not.toThrow();
     for (const profile of [DELIVERY_PROFILES.continuous, DELIVERY_PROFILES.replayable]) {
       expect(filterConversationDeltasForProfile(deltas, profile)).toEqual(deltas);
@@ -4826,6 +4943,165 @@ describe("结构性4：两 profile 终态一致", () => {
         status: "success",
       }),
     );
+  });
+
+  it("M07n：立即发送把等待审批的前台子代理转后台，父轮结束后审批仍待处理", () => {
+    // 事件顺序取自 core 运行时：child 的审批经镜像进入父会话，立即发送后 Agent 返回 async_launched，
+    // 旧轮以 cancelled 结束、新轮正常结束；child 仍在等用户作答，父界面必须继续显示这条审批。
+    const turnId = "turn-send-now-approval";
+    const parentToolCallId = "call_parent_agent_approval";
+    const agentId = "agent-approval";
+    const childSessionId = "session-child-approval";
+    const childToolCallId = `tool_subagent_${agentId}_call_child_ask`;
+    const mirrored = {
+      agentId,
+      agentType: "general-purpose",
+      childSessionId,
+      childToolCallId: "call_child_ask",
+      description: "Ask from child",
+      parentToolCallId,
+      source: "subagent",
+    };
+    const log = new EventLog();
+    log.push(SessionEventType.SessionCreated, { mode: "default", contextWindow: 1000 });
+    log.push(SessionEventType.TurnStarted, { turnNumber: 1, input: "ask via agent" }, { turnId });
+    log.push(
+      SessionEventType.ToolCallScheduled,
+      {
+        toolCallId: parentToolCallId,
+        toolName: "Agent",
+        input: { description: "Ask from child", prompt: "Ask the user" },
+        schedule: { parallelGroups: [[parentToolCallId]], executionOrder: [parentToolCallId] },
+      },
+      { turnId },
+    );
+    log.push(
+      SessionEventType.ToolCallStarted,
+      { toolCallId: parentToolCallId, toolName: "Agent", startedAt: new Date() },
+      { turnId },
+    );
+    log.push(
+      SessionEventType.SubagentSpawned,
+      {
+        agentId,
+        agentType: "general-purpose",
+        childSessionId,
+        description: "Ask from child",
+        parentToolCallId,
+        status: "running",
+      },
+      { turnId },
+    );
+    log.push(
+      SessionEventType.ToolCallScheduled,
+      {
+        ...mirrored,
+        toolCallId: childToolCallId,
+        toolName: "AskUserQuestion",
+        input: { questions: [{ question: "Which path?", header: "Path", options: [] }] },
+        schedule: { parallelGroups: [[childToolCallId]], executionOrder: [childToolCallId] },
+      },
+      { turnId },
+    );
+    log.push(
+      SessionEventType.PermissionRequested,
+      {
+        requestId: "ask-request-moved",
+        toolCallId: childToolCallId,
+        toolName: "AskUserQuestion",
+        riskLevel: "low",
+        reason: "Tool AskUserQuestion requires user interaction",
+        childSessionId,
+        origin: {
+          kind: "subagent",
+          agentId,
+          agentType: "general-purpose",
+          childSessionId,
+          description: "Ask from child",
+          parentSessionId: "session-1",
+          parentToolCallId,
+          parentTurnId: turnId,
+        },
+        input: {
+          questions: [
+            {
+              question: "Which path?",
+              header: "Path",
+              options: [
+                { label: "A", description: "Use path A" },
+                { label: "B", description: "Use path B" },
+              ],
+            },
+          ],
+        },
+      },
+      { turnId },
+    );
+    log.push(
+      SessionEventType.ToolCallResult,
+      {
+        toolCallId: parentToolCallId,
+        result: { success: true, content: "Async agent launched successfully." },
+        duration: 8,
+      },
+      { turnId },
+    );
+    log.push(
+      SessionEventType.BackgroundTaskStarted,
+      {
+        taskId: agentId,
+        toolCallId: parentToolCallId,
+        toolName: "Agent",
+        taskKind: "subagent",
+        childSessionId,
+        cancellable: true,
+        description: "Ask from child",
+        status: "running",
+      },
+      { turnId },
+    );
+    log.push(
+      SessionEventType.TurnComplete,
+      {
+        response: "",
+        tokenCount: 0,
+        toolCallCount: 0,
+        duration: 30,
+        resultType: "cancelled",
+        preserveQueueAutoDrainOnCancel: true,
+      },
+      { turnId },
+    );
+    log.push(
+      SessionEventType.TurnStarted,
+      { turnNumber: 2, input: "send this now" },
+      { turnId: "turn-send-now" },
+    );
+    log.push(
+      SessionEventType.TurnComplete,
+      { response: "parent reply", tokenCount: 2, toolCallCount: 0, duration: 2 },
+      { turnId: "turn-send-now" },
+    );
+
+    let snapshot = runAll(log.events).projection.getSnapshot();
+    expect(snapshot.pendingInteractions).toHaveLength(1);
+    expect(snapshot.pendingInteractions[0]).toMatchObject({
+      interactionId: "ask-request-moved",
+      kind: "userInput",
+      payload: { toolCallId: childToolCallId, origin: { kind: "subagent", agentId } },
+    });
+    expect(snapshot.backgroundWorks).toContainEqual(
+      expect.objectContaining({ workId: agentId, status: "running" }),
+    );
+
+    // 用户作答后审批收口。
+    log.push(
+      SessionEventType.PermissionResolved,
+      { requestId: "ask-request-moved", toolCallId: childToolCallId, decision: "allow" },
+      { turnId },
+    );
+    snapshot = runAll(log.events).projection.getSnapshot();
+    expect(snapshot.pendingInteractions).toEqual([]);
   });
 
   it("BG26：真实失败 lifecycle 归并 hydration 合成行并补齐 child session 身份", () => {
@@ -6477,7 +6753,18 @@ describe("fork / modelChange marker", () => {
       .getSnapshot()
       .rows.window.find((row) => row.rowId === assistantRow.rowId)!;
     expect(lockedRow.actions?.canEdit).toBeUndefined();
-    expect(lockedAssistantRow.actions?.canFork).toBeUndefined();
+    // compact 锁在 availability.fork，不写进行级 canFork（02-projection「会话锁与行级资格」）。
+    expect(lockedAssistantRow.actions?.canFork).toBe(true);
+    expect(projection.getSnapshot().availability.fork).toEqual({
+      allowed: false,
+      reasonCode: "compactOperationLock",
+    });
+    expect(
+      projection.resolveRowActionTarget(
+        { rowId: assistantRow.rowId, entityId: assistantRow.entityId! },
+        "forkAssistant",
+      ),
+    ).toEqual({ ok: false, status: "rejected", reasonCode: "guard.actionUnavailable" });
     expect(lockedAssistantRow.actions?.canRetry).toBeUndefined();
     expect(projection.getSnapshot().availability.sendQueuedNow).toEqual({
       allowed: false,
@@ -6605,7 +6892,11 @@ describe("fork / modelChange marker", () => {
       const lockedHeader = running.rows.window.find((row) => row.rowId === header.rowId)!;
       const lockedAssistant = running.rows.window.find((row) => row.rowId === assistant.rowId)!;
       expect(running.control.activeWorks.some((work) => work.kind === context.kind)).toBe(true);
-      expect(lockedHeader.actions?.canRewindFiles, context.kind).toBeUndefined();
+      expect(lockedHeader.actions?.canRewindFiles, context.kind).toBe(true);
+      expect(running.availability.rewindFiles, context.kind).toEqual({
+        allowed: false,
+        reasonCode: "fileRewindUnavailable",
+      });
       expect(lockedAssistant.actions?.canRetry, context.kind).toBeUndefined();
       expect(lockedAssistant.actions?.canFork, context.kind).toBe(true);
       expect(projection.resolveRowActionTarget(headerTarget, "applyFileRewind")).toMatchObject({
@@ -6620,6 +6911,41 @@ describe("fork / modelChange marker", () => {
         ok: true,
       });
     }
+  });
+
+  // ── composer 编辑态冻结：锁进入投影，同 id 重入 queued 不解锁，释放事件解锁 ──
+  it("TurnSteerEditLockChanged：锁投影到 queue item，重入 queued 保留锁，释放后移除", () => {
+    const log = new EventLog();
+    log.push(SessionEventType.SessionCreated, { mode: "default", contextWindow: 200_000 });
+    log.push(SessionEventType.TurnStarted, { turnNumber: 1, input: "跑" }, { turnId: "t1" });
+    const queued = {
+      pendingInputId: "q1",
+      input: "第一条",
+      inputPreview: "第一条",
+      inputSize: 9,
+      queueLength: 1,
+      targetTurnId: "t1",
+    };
+    log.push(SessionEventType.TurnSteerQueued, queued, { turnId: "t1" });
+    const lock = { editorId: "editor-a", clientId: "desktop", inputOrigin: "desktop" };
+    log.push(
+      SessionEventType.TurnSteerEditLockChanged,
+      { pendingInputId: "q1", targetTurnId: "t1", editLock: lock },
+      { turnId: "t1" },
+    );
+    const locked = runAll(log.events).projection.getSnapshot();
+    expect(locked.queue.items[0]?.editLock).toEqual(lock);
+    expect(locked.inputRouting.mode).toBe("enqueue");
+    log.push(SessionEventType.TurnSteerQueued, { ...queued, input: "改" }, { turnId: "t1" });
+    expect(runAll(log.events).projection.getSnapshot().queue.items[0]?.editLock).toEqual(lock);
+    log.push(
+      SessionEventType.TurnSteerEditLockChanged,
+      { pendingInputId: "q1", targetTurnId: "t1" },
+      { turnId: "t1" },
+    );
+    const released = runAll(log.events).projection.getSnapshot();
+    expect(released.queue.items[0]).not.toHaveProperty("editLock");
+    expect(released.queue.items[0]?.text).toBe("改");
   });
 
   // ── M4：queue 单项编辑（同 id 重入 TurnSteerQueued → 原地更新保位）──
@@ -7784,7 +8110,11 @@ describe("fork / modelChange marker", () => {
     const lockedHeader = projection
       .getSnapshot()
       .rows.window.find((row) => row.rowId === header!.rowId)!;
-    expect(lockedHeader.actions?.canRewindFiles).toBeUndefined();
+    expect(lockedHeader.actions?.canRewindFiles).toBe(true);
+    expect(projection.getSnapshot().availability.rewindFiles).toEqual({
+      allowed: false,
+      reasonCode: "compactOperationLock",
+    });
     expect(projection.resolveRowActionTarget(target, "applyFileRewind")).toEqual({
       ok: false,
       status: "rejected",

@@ -56,6 +56,7 @@ import type {
 } from "@zcode/contracts";
 import {
   CompactTrigger,
+  PLUGIN_DISCOVERY_INPUT,
   SESSION_ENTRY_MODEL_SELECTION,
   SessionEventType,
   type CompactBoundaryPayload,
@@ -85,6 +86,7 @@ import {
   SURVIVOR_ID,
   seedFailedForkRace,
 } from "../../adapters/tests/fixtures/session-transaction-race.js";
+import { answerReplyLanguageRequest } from "./helpers/fake-host-requests.js";
 
 // ── gateway 单元层（stub host，模式对齐 v4-gateway.test.ts）──────────────────
 
@@ -93,6 +95,7 @@ interface ColdHostStub {
   frames: ConversationTopicFrame[];
   errors: Array<{ scope: string; error: unknown }>;
   resumeCalls: string[];
+  debugMessages: string[];
   resumeThoughtLevels: Array<string | undefined>;
   resumeImpl: (sessionId: string) => Promise<ColdSessionResumeOutcome>;
   persistedEvents: Map<string, SessionEvent[]>;
@@ -106,6 +109,7 @@ function makeColdHost(): ColdHostStub {
     frames: [],
     errors: [],
     resumeCalls: [],
+    debugMessages: [],
     resumeThoughtLevels: [],
     // 默认打桩：恢复成功 = 会话进入内存注册表（对应 binder 的 resumeSession 建 record）。
     resumeImpl: async (sessionId) => {
@@ -153,6 +157,7 @@ function makeColdGateway(
       }),
       getSessionUsageSeed: (sessionId) => host.usageSeeds.get(sessionId) ?? null,
       onError: (scope, error) => host.errors.push({ scope, error }),
+      onDebug: (message) => host.debugMessages.push(message),
     },
     {
       now: options.now ?? (() => 1_700_000_999_000),
@@ -257,6 +262,9 @@ describe("v4 冷恢复（gateway 单元）", () => {
       snapshotRowCount: expect.any(Number),
     });
     expect(result.initialFrame?.payload.kind).toBe("snapshot");
+    // 冷恢复完成是只能从 agent 侧观察的事实（E2E 的子会话冷恢复屏障依赖它）；
+    // 生命周期重构曾删掉这条诊断，E2E 因此等不到任何完成信号。
+    expect(host.debugMessages).toContain("cold resume completed session=sess-cold");
   });
 
   it("Todo123: 同批容量种子不二次查询，恢复期间新模型和用量覆盖旧种子", async () => {
@@ -887,6 +895,8 @@ async function saveAssistantTextMessage(
 
 /** 冷恢复集成用最小 fake app（子集自 zcode-protocol.test.ts createFakeApp）。 */
 interface ColdFakeAppProbe {
+  getWorkflowActivityHistory?: ZCodeApp["getWorkflowActivityHistory"];
+  pluginDiscoveryInputs?: boolean[];
   resumeGate?: Promise<void>;
   failResume?: boolean;
   closeCalls?: number;
@@ -945,6 +955,9 @@ function createColdFakeApp(
   let models = [...baseModels];
 
   return {
+    ...(probe?.getWorkflowActivityHistory
+      ? { getWorkflowActivityHistory: probe.getWorkflowActivityHistory }
+      : {}),
     clearTarget: async () => false,
     close: async () => {
       if (probe?.closeCalls !== undefined) probe.closeCalls += 1;
@@ -1069,6 +1082,7 @@ function createColdFakeApp(
     sendInput: async (input, sendOptions) => {
       const text = (input as { text: string }).text;
       sentInputs.push({ text });
+      probe?.pluginDiscoveryInputs?.push(sendOptions?.intent?.[PLUGIN_DISCOVERY_INPUT] === true);
       const turnStarted = {
         ...makeEvent(String(sessionId), 0, SessionEventType.TurnStarted, {
           input: text,
@@ -1447,7 +1461,8 @@ describe("v4 冷恢复（集成：真 sqlite + server + binder）", () => {
       createZCodeApp: async (options) => {
         const app = await createRegistryBackedTestApp({
           ...options,
-          env: {},
+          // 真实 App 冷恢复会迁移代理配置；测试必须隔离存储，不能触碰开发者目录。
+          env: { ZCODE_STORAGE_DIR: join(tempRoot, "app-storage") },
           skipUserConfig: true,
           providerRegistry: registry,
         });
@@ -1456,6 +1471,7 @@ describe("v4 冷恢复（集成：真 sqlite + server + binder）", () => {
       },
     });
     server.setNotificationSink((message) => {
+      if (answerReplyLanguageRequest(server, message)) return;
       if (!("id" in message)) return;
       if (message.method === zcodeProtocolMethods.sessionRequestRuntimePreferences) {
         void server.handleMessage({
@@ -2377,6 +2393,19 @@ describe("v4 冷恢复（集成：真 sqlite + server + binder）", () => {
     const { server, store } = await bootRestartedServer(dbPath, []);
     try {
       // 不先 resume 任一 child，直接模拟 App 重启后的首次列表订阅。
+      // 首次事实也可能来自按 ID 对账，父子关系必须与实时/冷摘要一致。
+      expect(
+        await requestResult(server, {
+          id: "fork-reconcile-before-index",
+          method: V4_METHODS.sessionsIndexReconcile,
+          params: { workspaceId: WORKSPACE_PATH, sessionIds: [forkSessionId, rootSessionId] },
+        }),
+      ).toMatchObject({
+        sessions: [
+          { sessionId: forkSessionId, parentSessionId: rootSessionId, exists: true },
+          { sessionId: rootSessionId, exists: true },
+        ],
+      });
       await requestResult(server, {
         id: "cold-index-membership",
         method: V4_METHODS.conversationSubscribe,
@@ -2955,6 +2984,63 @@ describe("v4 冷恢复（集成：真 sqlite + server + binder）", () => {
     },
   );
 
+  it.each([true, false])(
+    "历史 marker=%s：冷订阅与同实例后续输入各自按当前连接裁决",
+    async (historical) => {
+      const dbPath = join(tempRoot, "capability.db");
+      await seedPersistedSession(dbPath);
+      const probe: ColdFakeAppProbe = {
+        readTodosCalls: 0,
+        resumeCalls: 0,
+        pluginDiscoveryInputs: [],
+      };
+      const { server, store } = await bootRestartedServer(dbPath, [], probe);
+      try {
+        if (historical) {
+          await store.saveSessionEntry({
+            id: "old-ui",
+            sessionID: SESSION_ID,
+            type: "runtime/plugin_discovery_ui",
+            time: { created: 1, updated: 1 },
+            data: { supported: true },
+          });
+        }
+        for (const [i, capable] of [!historical, historical].entries()) {
+          await requestResult(server, {
+            id: 10 + i,
+            method: V4_METHODS.conversationSubscribe,
+            params: {
+              topic: conversationTopic(SESSION_ID),
+              connectionId: "conn-" + i,
+              clientMode: i === 0 ? "desktop-continuous" : "web-remote-replayable",
+              ...(capable ? { pluginDiscoveryUi: true } : {}),
+            },
+          });
+          const result = commandAckSchema.parse(
+            await requestResult(server, {
+              id: 20 + i,
+              method: V4_METHODS.command,
+              params: {
+                commandId: "input-" + i,
+                clientId: "client-" + i,
+                sessionId: SESSION_ID,
+                issuedAt: 100 + i,
+                type: "sendText",
+                payload: { text: "ask " + i },
+                ...(capable ? { pluginDiscoveryUi: true } : {}),
+              },
+            }),
+          );
+          expect(result.status).toBe("accepted");
+          expect(probe.pluginDiscoveryInputs?.at(-1)).toBe(capable);
+        }
+        expect(probe.resumeCalls).toBe(1);
+      } finally {
+        store.close();
+      }
+    },
+  );
+
   it("重启后冷订阅：transcript 合成重建历史 + 可交互 + sendText 再发一轮成功", async () => {
     const dbPath = join(tempRoot, "sessions.db");
     await seedPersistedSession(dbPath);
@@ -3119,96 +3205,123 @@ describe("v4 冷恢复（集成：真 sqlite + server + binder）", () => {
     }
   });
 
-  it("historyFirst 在真实持久库读出正文后才启动 runtime，失败清理且重试保留正文", async () => {
-    const dbPath = join(tempRoot, "history-first.db");
-    await seedPersistedSession(dbPath);
-    const gate = deferred();
-    const probe: ColdFakeAppProbe = {
-      readTodosCalls: 0,
-      resumeCalls: 0,
-      closeCalls: 0,
-      resumeGate: gate.promise,
-      failResume: true,
-    };
-    const apps: ZCodeAppOptions[] = [];
-    // 存储迁移已异步化；新增历史用例必须等待夹具就绪，不能解构尚未完成的 Promise。
-    const { server, store } = await bootRestartedServer(dbPath, [], probe, apps);
-    const originalTime = (await store.getSession(SESSION_ID))?.time;
-    const messages = vi.spyOn(store, "messages");
-    let observed: ConversationSnapshot | undefined;
-    server.setNotificationSink((message) => {
-      if (
-        "id" in message &&
-        message.method === zcodeProtocolMethods.sessionRequestRuntimePreferences
-      ) {
-        void server.handleMessage({
-          id: message.id,
-          result: { nativeSearchEnhancementsEnabled: false, memoryEnabled: false },
-        });
-        return;
-      }
-      if (message.method !== V4_NOTIFICATIONS.conversationFrame) return;
-      const wire = routedTopicWireFrameSchema.parse(message.params);
-      if (wire.kind === "complete" && wire.topic === conversationTopic(SESSION_ID)) {
-        const frame = conversationTopicFrameSchema.parse(wire.frame);
-        if (frame.payload.kind === "snapshot") observed = frame.payload.snapshot;
-        else if (observed)
-          observed = {
-            ...applyConversationDeltas(observed, frame.payload.deltas),
-            seq: frame.toSeq,
-          };
-      }
-    });
-    const latest = () => observed;
-    const subscribe = async (id: string, retryInitialization?: string) => {
-      await requestResult(server, {
-        id,
-        method: V4_METHODS.conversationSubscribe,
-        params: {
-          topic: conversationTopic(SESSION_ID),
-          connectionId: "history-first",
-          clientMode: "desktop-continuous",
-          historyFirst: true,
-          ...(retryInitialization ? { retryInitialization } : {}),
-        },
+  it.each(["desktop-continuous", "web-remote-replayable"] as const)(
+    "historyFirst 在真实持久库读出正文后才启动 runtime，失败清理且重试保留正文 (%s)",
+    async (clientMode) => {
+      const dbPath = join(tempRoot, "history-first.db");
+      await seedPersistedSession(dbPath);
+      const gate = deferred();
+      const probe: ColdFakeAppProbe = {
+        readTodosCalls: 0,
+        resumeCalls: 0,
+        closeCalls: 0,
+        resumeGate: gate.promise,
+        failResume: true,
+      };
+      const apps: ZCodeAppOptions[] = [];
+      // 存储迁移已异步化；新增历史用例必须等待夹具就绪，不能解构尚未完成的 Promise。
+      const { server, store } = await bootRestartedServer(dbPath, [], probe, apps);
+      const journal = store.workflowJournalStore();
+      journal.createRun({
+        runId: "history-success",
+        parentSessionId: SESSION_ID,
+        cwd: WORKSPACE_PATH,
+        scriptText: "return 1",
+        scriptHash: "test-hash",
+        caps: { maxConcurrency: 1 },
+        spentTokens: 0,
+        status: "completed",
       });
-      const frame = conversationTopicFrameSchema.parse(takeInitialFrameParams(server, id));
-      if (frame.payload.kind !== "snapshot") throw new Error("missing snapshot");
-      observed = frame.payload.snapshot;
-      return frame.payload.snapshot;
-    };
-    try {
-      const initial = await subscribe("first");
-      expect(probe.resumeCalls).toBe(0);
-      expect(initial.runtimeInitialization?.status).toBe("initializing");
-      expect(JSON.stringify(initial.rows)).toContain("历史回答二");
-      expect(JSON.stringify(initial.rows)).toContain("历史工具输出");
-      await vi.waitFor(() => expect(probe.resumeCalls).toBe(1));
-      gate.resolve();
-      await vi.waitFor(() => expect(latest()?.runtimeInitialization?.status).toBe("failed"));
-      expect(probe.closeCalls).toBe(1);
-      expect(messages.mock.calls.filter(([input]) => input.sessionID === SESSION_ID)).toHaveLength(
-        1,
-      );
-      const failed = latest()!;
-      const reconnect = await subscribe("reconnect");
-      expect(reconnect.runtimeInitialization?.status).toBe("failed");
-      expect(apps).toHaveLength(1);
-      probe.failResume = false;
-      await subscribe("retry", failed.runtimeInitialization!.attemptId);
-      await vi.waitFor(() => expect(latest()?.runtimeInitialization?.status).toBe("ready"));
-      expect(apps).toHaveLength(2);
-      expect(latest()!.seq).toBeGreaterThan(initial.seq);
-      expect(latest()!.rows.totalCount).toBe(initial.rows.totalCount);
-      expect(messages.mock.calls.filter(([input]) => input.sessionID === SESSION_ID)).toHaveLength(
-        2,
-      );
-      expect((await store.getSession(SESSION_ID))?.time).toEqual(originalTime);
-    } finally {
-      gate.resolve();
-      store.close();
-    }
-  });
+      probe.getWorkflowActivityHistory = async () =>
+        (
+          journal as typeof journal & {
+            getActivityHistory(
+              id: string,
+            ): Awaited<ReturnType<NonNullable<ZCodeApp["getWorkflowActivityHistory"]>>>;
+          }
+        ).getActivityHistory(SESSION_ID);
+      const originalTime = (await store.getSession(SESSION_ID))?.time;
+      const messages = vi.spyOn(store, "messages");
+      let observed: ConversationSnapshot | undefined;
+      server.setNotificationSink((message) => {
+        if (
+          "id" in message &&
+          message.method === zcodeProtocolMethods.sessionRequestRuntimePreferences
+        ) {
+          void server.handleMessage({
+            id: message.id,
+            result: { nativeSearchEnhancementsEnabled: false, memoryEnabled: false },
+          });
+          return;
+        }
+        if (message.method !== V4_NOTIFICATIONS.conversationFrame) return;
+        const wire = routedTopicWireFrameSchema.parse(message.params);
+        if (wire.kind === "complete" && wire.topic === conversationTopic(SESSION_ID)) {
+          const frame = conversationTopicFrameSchema.parse(wire.frame);
+          if (frame.payload.kind === "snapshot") observed = frame.payload.snapshot;
+          else if (observed)
+            observed = {
+              ...applyConversationDeltas(observed, frame.payload.deltas),
+              seq: frame.toSeq,
+            };
+        }
+      });
+      const latest = () => observed;
+      const subscribe = async (id: string, retryInitialization?: string) => {
+        await requestResult(server, {
+          id,
+          method: V4_METHODS.conversationSubscribe,
+          params: {
+            topic: conversationTopic(SESSION_ID),
+            connectionId: "history-first",
+            clientMode,
+            historyFirst: true,
+            ...(retryInitialization ? { retryInitialization } : {}),
+          },
+        });
+        const frame = conversationTopicFrameSchema.parse(takeInitialFrameParams(server, id));
+        if (frame.payload.kind !== "snapshot") throw new Error("missing snapshot");
+        observed = frame.payload.snapshot;
+        return frame.payload.snapshot;
+      };
+      try {
+        const initial = await subscribe("first");
+        expect(initial.completedActivityCount).toBeNull();
+        expect(probe.resumeCalls).toBe(0);
+        expect(initial.runtimeInitialization?.status).toBe("initializing");
+        expect(JSON.stringify(initial.rows)).toContain("历史回答二");
+        expect(JSON.stringify(initial.rows)).toContain("历史工具输出");
+        await vi.waitFor(() => expect(probe.resumeCalls).toBe(1));
+        gate.resolve();
+        await vi.waitFor(() => expect(latest()?.runtimeInitialization?.status).toBe("failed"));
+        expect(probe.closeCalls).toBe(1);
+        expect(
+          messages.mock.calls.filter(([input]) => input.sessionID === SESSION_ID),
+        ).toHaveLength(1);
+        const failed = latest()!;
+        expect(failed.completedActivityCount).toBeNull();
+        expect(JSON.stringify(failed.rows)).toContain("历史回答二");
+        const reconnect = await subscribe("reconnect");
+        expect(reconnect.runtimeInitialization?.status).toBe("failed");
+        expect(reconnect.completedActivityCount).toBeNull();
+        expect(apps).toHaveLength(1);
+        probe.failResume = false;
+        await subscribe("retry", failed.runtimeInitialization!.attemptId);
+        await vi.waitFor(() => expect(latest()?.runtimeInitialization?.status).toBe("ready"));
+        expect(apps).toHaveLength(2);
+        expect(latest()?.completedActivityCount).toBe(1);
+        expect(latest()!.seq).toBeGreaterThan(initial.seq);
+        expect(latest()!.rows.totalCount).toBe(initial.rows.totalCount);
+        expect(
+          messages.mock.calls.filter(([input]) => input.sessionID === SESSION_ID),
+        ).toHaveLength(2);
+        expect((await store.getSession(SESSION_ID))?.time).toEqual(originalTime);
+      } finally {
+        gate.resolve();
+        store.close();
+      }
+    },
+  );
 
   it("V4 冷订阅只激活 runtime 并复用一次持久物化，legacy resume 仍返回完整 snapshot", async () => {
     const dbPath = join(tempRoot, "sessions.db");

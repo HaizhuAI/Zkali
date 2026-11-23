@@ -81,6 +81,7 @@ export async function executeTools(
   });
 
   const generator = this.executor.executeSchedule(executableCalls, schedule, {
+    pluginDiscoveryUi: options?.pluginDiscoveryUi,
     automationTurn: options?.automationTurn,
     automationId: options?.automationId,
     offPeakTurn: options?.offPeakTurn,
@@ -89,6 +90,7 @@ export async function executeTools(
     subagentModelOverride: options?.subagentModelOverride,
     model: options?.model,
     toolSearch: options?.toolSearch,
+    responseId: options?.responseId,
   });
   let results: ToolExecutionResult[] = [];
 

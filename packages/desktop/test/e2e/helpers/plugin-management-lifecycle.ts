@@ -539,6 +539,7 @@ export async function setPluginEnabledThroughUi(
   pluginId: string,
   enabled: boolean,
   entry: "detail" | "manage" | "market" = "detail",
+  workspacePath = DEFAULT_WORKSPACE,
 ): Promise<void> {
   if (entry === "manage" || entry === "market") {
     const testId =
@@ -546,7 +547,7 @@ export async function setPluginEnabledThroughUi(
     const current = await readPluginControlChecked(testId, { pluginId });
     if (current !== enabled) await clickPluginControl(testId, { pluginId });
   } else {
-    const list = await getPluginList();
+    const list = await getPluginList(workspacePath);
     if (list.plugins.find((plugin) => plugin.id === pluginId)?.enabled !== enabled) {
       await clickPluginControl("plugin-store-item-menu", { pluginId });
       await clickPluginControl("plugin-store-menu-enabled", { pluginId });
@@ -555,6 +556,8 @@ export async function setPluginEnabledThroughUi(
   await waitUntilPluginList(
     (list) => list.plugins.some((plugin) => plugin.id === pluginId && plugin.enabled === enabled),
     `Plugin enabled state did not become ${enabled}: ${pluginId}`,
+    30000,
+    workspacePath,
   );
 }
 
@@ -564,11 +567,8 @@ export async function configureLifecyclePluginThroughUi(value: string): Promise<
   if (fromStore) {
     await clickPluginControl("plugin-store-detail-back");
     await openManageView();
-    // 管理列表行已改为复用 PluginStoreCard（整卡 role=button），行内第一个 <button> 是更新/菜单等子按钮，
-    // 点它进不了详情；必须点卡片本身。
-    await $(
-      `[data-testid="plugin-settings-plugin-row"][data-plugin-id="${PLUGIN_LIFECYCLE_ID}"] [data-testid="plugin-store-card"]`,
-    ).click();
+    // 整行卡片负责打开详情，行内第一个 button 是菜单，会误打开卸载操作。
+    await clickPluginControl("plugin-store-card", { pluginId: PLUGIN_LIFECYCLE_ID });
   }
   await clickPluginControl("plugin-store-advanced");
   await setPluginControlValue(
@@ -971,12 +971,14 @@ export async function waitUntilPluginList(
   predicate: (list: ZCodePluginsListResult) => boolean,
   timeoutMsg: string,
   timeout = 30000,
+  workspacePath = DEFAULT_WORKSPACE,
 ): Promise<void> {
+  // 启停属于操作时的 workspace；未归类任务不能用默认项目的状态确认 UI 已生效。
   let latest: ZCodePluginsListResult | undefined;
   try {
     await browser.waitUntil(
       async () => {
-        latest = await getPluginList();
+        latest = await getPluginList(workspacePath);
         return predicate(latest);
       },
       { timeout, timeoutMsg },
@@ -990,6 +992,33 @@ export async function waitUntilPluginList(
     }));
     throw new Error(`${timeoutMsg}; latest=${JSON.stringify(plugins)}`, { cause: error });
   }
+}
+
+export async function waitForPluginDraftRuntimeInvalidation(
+  workspacePath = DEFAULT_WORKSPACE,
+  timeout = 30000,
+): Promise<void> {
+  await browser.waitUntil(
+    () =>
+      browser.execute((path) => {
+        const store = (
+          window as typeof window & {
+            __zcodeSessionStoreE2E?: {
+              getState: () => {
+                getWorkspaceState: (workspacePath: string) => {
+                  draftSessionId: string | null;
+                };
+              };
+            };
+          }
+        ).__zcodeSessionStoreE2E;
+        return store?.getState().getWorkspaceState(path).draftSessionId === null;
+      }, workspacePath),
+    {
+      timeout,
+      timeoutMsg: "Plugin runtime refresh did not invalidate the deferred draft session",
+    },
+  );
 }
 
 export async function readPluginConfigOptions(): Promise<Record<string, unknown>> {
@@ -1032,7 +1061,7 @@ async function readPluginControlChecked(
   );
 }
 
-async function setPluginControlValue(
+export async function setPluginControlValue(
   testIdValue: string,
   attributes: PluginControlAttributes,
   value: string,

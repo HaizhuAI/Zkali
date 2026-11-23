@@ -1,8 +1,10 @@
 import { drainMemoryExtractions } from "../src/runtime/helpers/project-memory-extraction.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createPartId,
   createSessionId,
+  type ExecutionPort,
+  type ExecutionShellSelection,
   type MessageInfo,
   type MessagePart,
   type MessageWithParts,
@@ -163,7 +165,7 @@ describe("AgentRuntime background Memory extraction", () => {
 
     const request = extractionRequests[0]!;
     const requestText = providerMessagesToText(request.messages);
-    expect(requestText).toContain("# Memory");
+    expect(requestText).toContain("# Memory\n");
     expect(requestText).toContain("remember this durable project preference");
     expect(requestText).toContain("main answer");
     expect(requestText).toContain(EXTRACTION_PROMPT_MARKER);
@@ -198,7 +200,7 @@ describe("AgentRuntime background Memory extraction", () => {
           finishReason: "tool-calls",
           usage: {},
           toolCalls: [
-            { id: "search-memory", name: "ToolSearch", input: { query: "select:WebFetch" } },
+            { id: "search-memory", name: "ToolSearch", input: { query: "select:TaskOutput" } },
           ],
         };
       return textResult(request, "main answer");
@@ -214,13 +216,13 @@ describe("AgentRuntime background Memory extraction", () => {
       modelFactory: (input) => withSearch(baseFactory(input)),
       toolSearch: { mode: "native" },
     });
-    await runtime.executeTurn("remember that I use WebFetch");
+    await runtime.executeTurn("remember that I use TaskOutput");
     await runtime.drainMemoryExtractions();
     const extraction = requests.find(isExtractionRequest)!;
     expect(extraction.toolSearchEnabled).toBe(false);
     expect(extraction.tools?.some((tool) => tool.name === "ToolSearch")).toBe(false);
     expect(
-      extraction.tools?.find((tool) => tool.name === "WebFetch")?.deferLoading,
+      extraction.tools?.find((tool) => tool.name === "TaskOutput")?.deferLoading,
     ).toBeUndefined();
     expect(providerMessagesToText(extraction.messages)).toContain(
       "Tool references removed - tool search not enabled",
@@ -360,20 +362,36 @@ describe("AgentRuntime background Memory extraction", () => {
     expect(replacementRequestText).toContain(EXTRACTION_PROMPT_MARKER);
   });
 
+  it("schedules Extraction for a remote workspace whose CLI runs on the remote host", async () => {
+    let extractionRequestCount = 0;
+    const runtime = createExtractionRuntime({
+      isRemoteWorkspace: () => true,
+      async generateText(request) {
+        if (isExtractionRequest(request)) extractionRequestCount += 1;
+        return textResult(
+          request,
+          isExtractionRequest(request) ? "Nothing to save." : "main answer",
+        );
+      },
+    });
+
+    await runtime.executeTurn("persist this durable project preference");
+    await runtime.drainMemoryExtractions();
+
+    expect(extractionRequestCount).toBe(1);
+  });
+
   it.each<{
-    isRemoteWorkspace?: () => boolean;
     memory?: { enabled?: boolean; use?: boolean };
     name: string;
     taskType?: SessionTaskType;
   }>([
-    { isRemoteWorkspace: () => true, name: "remote workspace" },
     { name: "child task", taskType: "subagent_child" },
     { memory: { enabled: false }, name: "disabled feature" },
     { memory: { use: false }, name: "disabled use" },
   ])("does not schedule Extraction for $name", async (input) => {
     let extractionRequestCount = 0;
     const runtime = createExtractionRuntime({
-      isRemoteWorkspace: input.isRemoteWorkspace,
       memory: input.memory,
       taskType: input.taskType,
       async generateText(request) {
@@ -705,6 +723,50 @@ describe("AgentRuntime background Memory extraction", () => {
     expect(fileSystemPort.files[memoryPath]).toBe("third");
   });
 
+  it("checks Extraction Bash against the session shell before it reaches the executor", async () => {
+    const run = vi.fn();
+    let extractionTurn = 0;
+    let followupRequestText = "";
+    const runtime = createExtractionRuntime({
+      bashShellSelection: {
+        dialect: "cmd",
+        display: { name: "CMD" },
+        id: "cmd",
+        path: String.raw`C:\Windows\System32\cmd.exe`,
+        source: "user-config",
+      },
+      executionPort: { run } as unknown as ExecutionPort,
+      async generateText(request) {
+        if (!isExtractionRequest(request)) return textResult(request, "main answer");
+        extractionTurn += 1;
+        if (extractionTurn === 1) {
+          return {
+            ...textResult(request, ""),
+            finishReason: "tool_calls",
+            toolCalls: [
+              {
+                id: "cmd-chain",
+                name: "Bash",
+                input: { command: String.raw`type # & python G:\temp\hello.py` },
+              },
+            ],
+          };
+        }
+        followupRequestText = providerMessagesToText(request.messages);
+        return textResult(request, "Nothing to save.");
+      },
+    });
+
+    await runtime.executeTurn("persist this durable project preference");
+    await runtime.drainMemoryExtractions();
+
+    // Memory executor 以 yolo 执行，策略是唯一闸门；这里证明会话 shell 快照传到了策略，
+    // 被拒的命令不会到执行端。CMD 语法本身的判定在 memory-agent-loop 单测里覆盖。
+    expect(extractionTurn).toBe(2);
+    expect(run).not.toHaveBeenCalled();
+    expect(followupRequestText).toContain("Only read-only shell commands and rm with all paths");
+  });
+
   it("does not let discarded branch prose satisfy the Extraction gate after rewind", async () => {
     const sessionStore = createMemorySessionStore();
     let extractionRequestCount = 0;
@@ -841,6 +903,8 @@ describe("AgentRuntime background Memory extraction", () => {
 function createExtractionRuntime(input: {
   toolSearch?: { mode: "native" | "local" | "off" | "auto" };
   artifactStore?: ToolArtifactStorePort;
+  bashShellSelection?: ExecutionShellSelection;
+  executionPort?: ExecutionPort;
   generateText: (
     request: ModelRequest,
     observation: TestModelExecutionObservation,
@@ -860,6 +924,7 @@ function createExtractionRuntime(input: {
     createSessionId(`runtime-memory-extraction-${crypto.randomUUID()}`),
     {
       toolSearch: input.toolSearch,
+      bashShellSelection: input.bashShellSelection,
       memory: {
         cliStorageRoot: CLI_STORAGE_ROOT,
         enabled: true,
@@ -874,6 +939,7 @@ function createExtractionRuntime(input: {
     {
       artifactStore: input.artifactStore,
       eventStore: createTestSessionEventStore(),
+      executionPort: input.executionPort,
       fileSystemPort,
       isRemoteWorkspace: input.isRemoteWorkspace,
       modelFactory:

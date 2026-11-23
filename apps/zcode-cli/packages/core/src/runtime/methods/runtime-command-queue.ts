@@ -1,3 +1,4 @@
+import { createInputPreemptionAbortReason } from "@zcode/contracts";
 import {
   backgroundBatchTelemetryAttributes,
   telemetryInputOrigin,
@@ -392,7 +393,9 @@ async function runTaskNotificationBatch(
       abortSignal: foregroundExecution.controller.signal,
       // 批次展示 metadata 只保留代表任务，composition 必须检查整批，不能被首个 Bash 任务遮蔽。
       backgroundSubagentResultConsumed: eligibleCommands.some(
-        (command) => command.originMeta?.backgroundSource === "subagent",
+        (command) =>
+          command.originMeta?.backgroundSource === "subagent" &&
+          command.originMeta.subagentStall === undefined,
       ),
       // 同一规则的 workflow 维度：run 的完成 / 提问通知在批里。
       workflowResultConsumed: eligibleCommands.some(
@@ -507,7 +510,14 @@ export function stopActiveForegroundExecution(
   // turn catch 因而把 queueAutoDrain 关闭。把调用意图固定在当前 foreground
   // execution 上，保证超时后迟到的 TurnComplete 仍能保留原队列授权。
   active.preserveQueueAutoDrainOnCancel = options.preserveQueueAutoDrainOnCancel === true;
-  active.controller.abort(new Error(options.reason ?? "foreground execution stopped"));
+  const message = options.reason ?? "foreground execution stopped";
+  // 立即发送的停止原因带结构化标记，沿 turn → executor → Agent → subagent runner 原样传递；
+  // 前台子代理据此转入后台而不是被取消。Stop 等其他停止仍用普通原因。
+  active.controller.abort(
+    active.preserveQueueAutoDrainOnCancel
+      ? createInputPreemptionAbortReason(message)
+      : new Error(message),
+  );
   return {
     kind: "stopped",
     foregroundExecutionId: active.foregroundExecutionId,
